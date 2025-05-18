@@ -18,15 +18,152 @@ from gamification.leaderboard import update_leaderboard, get_leaderboard
 from gamification.virtual_currency import get_balance, add_trade, get_portfolio
 from data.mysql_db import get_db_connection
 
+# Project setup
 project_root = str(Path(__file__).parent)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-st.set_page_config(page_title="Finance Simulator", layout="wide")
+# Page configuration
+st.set_page_config(page_title="📈 Finance Simulator", layout="wide", initial_sidebar_state="expanded")
+
+# Custom CSS for dark theme
+st.markdown("""
+    <style>
+    .main {
+        background-color: #1a1a1a;
+        padding: 20px;
+        color: #ffffff;
+    }
+    .stSidebar {
+        background: linear-gradient(180deg, #1c2526 0%, #2a3d45 100%);
+        color: #ffffff;
+        padding: 20px;
+    }
+    .stSidebar .sidebar-content {
+        font-family: 'Arial', sans-serif;
+    }
+    .nav-item {
+        padding: 10px 15px;
+        margin: 5px 0;
+        border-radius: 8px;
+        font-size: 16px;
+        color: #ffffff;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .nav-item:hover {
+        background-color: #374151;
+        transform: translateX(5px);
+    }
+    .nav-item.active {
+        background-color: #4b5563;
+        color: #ffffff;
+        font-weight: bold;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    .stButton>button {
+        background-color: #4b5563;
+        color: #ffffff;
+        border-radius: 8px;
+        padding: 10px 20px;
+        transition: all 0.3s ease;
+        border: none;
+    }
+    .stButton>button:hover {
+        background-color: #6b7280;
+        transform: translateY(-2px);
+    }
+    .stTextInput>input, .stNumberInput>input {
+        background-color: #374151;
+        color: #ffffff;
+        border-radius: 8px;
+        border: 1px solid #4b5563;
+        padding: 10px;
+    }
+    .stSelectbox [data-baseweb="select"] {
+        background-color: #374151;
+        color: #ffffff;
+        border-radius: 8px;
+        border: 1px solid #4b5563;
+    }
+    .stSelectbox [data-baseweb="select"] span {
+        color: #ffffff;
+    }
+    .stTable {
+        background-color: #2d2d2d;
+        color: #ffffff;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        padding: 10px;
+    }
+    .stExpander {
+        background-color: #2d2d2d;
+        color: #ffffff;
+        border-radius: 8px;
+        margin: 10px 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    .stExpander div[data-testid="stExpanderToggle"] {
+        color: #ffffff;
+    }
+    .header {
+        font-size: 2.5em;
+        color: #ffffff;
+        margin-bottom: 20px;
+    }
+    .subheader {
+        font-size: 1.5em;
+        color: #d1d5db;
+        margin-top: 20px;
+        margin-bottom: 10px;
+    }
+    .balance {
+        font-size: 1.2em;
+        color: #ffffff;
+        background-color: #4b5563;
+        padding: 10px;
+        border-radius: 8px;
+        text-align: center;
+        margin-top: 20px;
+    }
+    .stMarkdown, .stMarkdown p, .stMarkdown div {
+        color: #ffffff;
+    }
+    .stTabs [data-baseweb="tab"] {
+        color: #d1d5db;
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        color: #ffffff;
+        font-weight: bold;
+    }
+    *:focus {
+    outline: none !important;
+    box-shadow: 0 0 0 2px #ffffff !important; /* cool slate blue */
+    }
+
+    input:invalid, select:invalid, textarea:invalid {
+        border-color: #ffffff !important;
+    }
+
+    .stButton>button:focus {
+        box-shadow: 0 0 0 3px #ffffff !important;
+    }
+    .nav-item:hover {
+    background-color: #374151;
+    color: #cbd5e1; /* cool light grey-blue */
+    transform: translateX(5px);
+    }
+    ::selection {
+    background: #ffffff;  /* cool grey background */
+    color: #ffffff;       /* white text on selection */
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 STOCK_LIST = ["UNH", "TSLA", "QCOM", "ORCL", "NVDA", "NFLX", "MSFT", "META", "LLY", "JNJ", 
               "INTC", "IBM", "GOOGL", "GM", "F", "CSCO", "AMZN", "AMD", "ADBE", "AAPL"]
 
+# Initialize Finnhub client
 try:
     finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
 except Exception as e:
@@ -90,6 +227,7 @@ def update_stock_price_in_db(symbol: str, quote: dict):
     except Exception as e:
         logger.error(f"Failed to update price in DB for {symbol}: {str(e)}")
 
+# Initialize session state
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_id = None
@@ -98,88 +236,127 @@ if "authenticated" not in st.session_state:
     st.session_state.last_portfolio_refresh = 0.0
     st.session_state.preferences = None
 
+# Authentication UI
 if not st.session_state.authenticated:
-    st.title("Finance Simulator - Sign In / Sign Up")
-    tab1, tab2 = st.tabs(["Sign In", "Sign Up"])
+    st.markdown("<h1 class='header'>📈 Finance Simulator</h1>", unsafe_allow_html=True)
+    tab1, tab2 = st.tabs(["🔐 Sign In", "✨ Sign Up"])
     
     with tab1:
-        email = st.text_input("Email", key="signin_email")
-        password = st.text_input("Password", type="password", key="signin_password")
-        if st.button("Sign In"):
-            try:
-                user = sign_in(email, password)
-                if user:
-                    st.session_state.authenticated = True
-                    st.session_state.user_id = user["id"]
-                    st.session_state.username = user["username"]
-                    st.session_state.balance = float(user["balance"])
-                    st.session_state.last_portfolio_refresh = 0.0
-                    st.session_state.preferences = None
-                    st.success("Signed in successfully!")
-                    st.rerun()
-                else:
-                    st.error("Invalid email or password")
-            except Exception as e:
-                st.error(f"Sign-in failed: {str(e)}")
+        with st.container():
+            email = st.text_input("Email", key="signin_email")
+            password = st.text_input("Password", type="password", key="signin_password")
+            if st.button("Sign In"):
+                try:
+                    user = sign_in(email, password)
+                    if user:
+                        st.session_state.authenticated = True
+                        st.session_state.user_id = user["id"]
+                        st.session_state.username = user["username"]
+                        st.session_state.balance = float(user["balance"])
+                        st.session_state.last_portfolio_refresh = 0.0
+                        st.session_state.preferences = None
+                        st.success("Signed in successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid email or password")
+                except Exception as e:
+                    st.error(f"Sign-in failed: {str(e)}")
     
     with tab2:
-        signup_email = st.text_input("Email", key="signup_email")
-        signup_password = st.text_input("Password", type="password", key="signup_password")
-        username = st.text_input("Username", key="signup_username")
-        if st.button("Sign Up"):
-            try:
-                if sign_up(signup_email, signup_password, username):
-                    st.success("Account created! Please sign in.")
-                else:
-                    st.error("Email already exists or invalid input")
-            except Exception as e:
-                st.error(f"Sign-up failed: {str(e)}")
+        with st.container():
+            signup_email = st.text_input("Email", key="signup_email")
+            signup_password = st.text_input("Password", type="password", key="signup_password")
+            username = st.text_input("Username", key="signup_username")
+            if st.button("Sign Up"):
+                try:
+                    if sign_up(signup_email, signup_password, username):
+                        st.success("Account created! Please sign in.")
+                    else:
+                        st.error("Email already exists or invalid input")
+                except Exception as e:
+                    st.error(f"Sign-up failed: {str(e)}")
 else:
-    st.title(f"Welcome, {st.session_state.username}!")
-    if st.button("Sign Out"):
-        try:
-            st.session_state.authenticated = False
-            st.session_state.user_id = None
-            st.session_state.username = None
-            st.session_state.balance = 100000.0
-            st.session_state.last_portfolio_refresh = 0.0
-            st.session_state.preferences = None
+    # Main application UI
+    st.markdown(f"<h1 class='header'>Welcome, {st.session_state.username}! 👋</h1>", unsafe_allow_html=True)
+    
+    # Custom navigation sidebar
+    st.sidebar.markdown("<h2 style='color: #ffffff;'>Navigation</h2>", unsafe_allow_html=True)
+    nav_items = ["Get Recommendations", "Learn", "Trade", "Portfolio", "Leaderboard"]
+    selected_page = st.session_state.get("page", "Get Recommendations")
+    
+    for item in nav_items:
+        if st.sidebar.button(item, key=f"nav_{item}", use_container_width=True):
+            st.session_state.page = item
             st.rerun()
+    
+    # Apply active class to selected navigation item
+    st.markdown(f"""
+        <script>
+        document.querySelectorAll('.stButton').forEach(button => {{
+            if (button.textContent === "{selected_page}") {{
+                button.classList.add('active');
+            }} else {{
+                button.classList.remove('active');
+            }}
+        }});
+        </script>
+    """, unsafe_allow_html=True)
+
+    page = st.session_state.get("page", "Get Recommendations")
+
+    # Sign out button and balance
+    with st.sidebar:
+        if st.button("🚪 Sign Out", use_container_width=True):
+            try:
+                st.session_state.authenticated = False
+                st.session_state.user_id = None
+                st.session_state.username = None
+                st.session_state.balance = 100000.0
+                st.session_state.last_portfolio_refresh = 0.0
+                st.session_state.preferences = None
+                st.rerun()
+            except Exception as e:
+                st.error(f"Sign-out failed: {str(e)}")
+
+        try:
+            st.markdown(f"<div class='balance'>Virtual Balance: ${st.session_state.balance:.2f}</div>", unsafe_allow_html=True)
         except Exception as e:
-            st.error(f"Sign-out failed: {str(e)}")
+            logger.error(f"Failed to display balance: {str(e)}")
+            st.error(f"Failed to display balance: {str(e)}")
 
-    st.sidebar.header("Navigation")
-    page = st.sidebar.radio("Go to", ["Get Recommendations", "Learn", "Trade", "Portfolio", "Leaderboard"])
-
+    # Page content
     if page == "Get Recommendations":
-        st.header("Get Personalized Stock Recommendations")
+        st.markdown("<h2 class='subheader'>📊 Get Personalized Stock Recommendations</h2>", unsafe_allow_html=True)
         with st.form(key="preferences_form"):
-            risk_appetite = st.selectbox(
-                "Risk Appetite",
-                ["low", "medium", "high"],
-                help="Select 'low' for safe/secure/cautious, 'high' for aggressive/risky, or 'medium' otherwise."
-            )
-            investment_goals = st.selectbox(
-                "Investment Goals",
-                ["retirement", "growth", "income"],
-                help="Select 'retirement' for long-term savings, 'growth' for wealth/expansion, 'income' for dividends/passive."
-            )
-            time_horizon = st.selectbox(
-                "Time Horizon",
-                ["short", "medium", "long"],
-                help="Select 'short' for 1-3 years, 'medium' for 3-7 years, 'long' for 7+ years."
-            )
+            col1, col2 = st.columns(2)
+            with col1:
+                risk_appetite = st.selectbox(
+                    "Risk Appetite",
+                    ["low", "medium", "high"],
+                    help="Select 'low' for safe/secure/cautious, 'high' for aggressive/risky, or 'medium' otherwise."
+                )
+                investment_goals = st.selectbox(
+                    "Investment Goals",
+                    ["retirement", "growth", "income"],
+                    help="Select 'retirement' for long-term savings, 'growth' for wealth/expansion, 'income' for dividends/passive."
+                )
+            with col2:
+                time_horizon = st.selectbox(
+                    "Time Horizon",
+                    ["short", "medium", "long"],
+                    help="Select 'short' for 1-3 years, 'medium' for 3-7 years, 'long' for 7+ years."
+                )
+                investment_style = st.selectbox(
+                    "Investment Style",
+                    ["value", "growth", "index"],
+                    help="Select 'index' for passive investing, or choose 'value' or 'growth'."
+                )
             investment_amount = st.number_input(
                 "Investment Amount ($)",
                 min_value=0.0,
                 value=10000.0,
                 step=100.0,
                 help="Enter the amount you wish to invest (e.g., 5000.0)."
-            )
-            investment_style = st.selectbox(
-                "Investment Style",
-                ["value", "growth", "index"],
-                help="Select 'index' for passive investing, or choose 'value' or 'growth'."
             )
             submit_button = st.form_submit_button("Get Recommendations")
 
@@ -198,7 +375,7 @@ else:
                 st.session_state.preferences = preferences
                 logger.info(f"Submitted preferences: {preferences}")
                 
-                st.subheader("Your Investment Preferences")
+                st.markdown("<h3 style='color: #ffffff;'>Your Investment Preferences</h3>", unsafe_allow_html=True)
                 prefs_display = {
                     "Risk Appetite": preferences["risk_appetite"],
                     "Investment Goals": preferences["investment_goals"],
@@ -215,7 +392,7 @@ else:
                 if result["recommendations"]:
                     st.success("Generated personalized recommendations!")
                     logger.info(f"Generated recommendations: {result['recommendations']}")
-                    st.subheader("Your Stock Recommendations")
+                    st.markdown("<h3 style='color: #ffffff;'>Your Stock Recommendations</h3>", unsafe_allow_html=True)
                     for rec in result["recommendations"]:
                         with st.expander(f"{rec['Symbol']} - {rec['Company']}"):
                             st.markdown(f"**Action**: {rec['Action']}")
@@ -230,7 +407,7 @@ else:
                     st.info("Check finance_simulator/logs/app.log for details.")
 
     elif page == "Learn":
-        st.header("Learn Investment Strategies")
+        st.markdown("<h2 class='subheader'>📚 Learn Investment Strategies</h2>", unsafe_allow_html=True)
         try:
             educator = EducatorAgent()
             strategy = st.selectbox("Choose a strategy", ["Value Investing", "Growth Investing", "Dividend Investing"])
@@ -243,11 +420,11 @@ else:
             st.error(f"Failed to load educational content: {str(e)}")
 
     elif page == "Trade":
-        st.header("Trade Stocks")
+        st.markdown("<h2 class='subheader'>💹 Trade Stocks</h2>", unsafe_allow_html=True)
         mode = st.radio("Trading Mode", ["Manual", "Agent-Based"])
         if mode == "Manual":
             try:
-                st.subheader("Stock Prices")
+                st.markdown("<h3 style='color: #ffffff;'>Stock Prices</h3>", unsafe_allow_html=True)
                 logger.info("Fetching stock prices for manual trading")
                 stock_data = fetch_stock_prices()
                 st.table(pd.DataFrame.from_dict(stock_data, orient="index", columns=["Price ($)"]))
@@ -255,98 +432,111 @@ else:
                 logger.error(f"Failed to load stock prices: {str(e)}")
                 st.error(f"Failed to load stock prices: {str(e)}")
 
-            symbol = st.selectbox("Select Stock", STOCK_LIST, key="manual_trade_stock")
-            trade_type = st.radio("Trade Type", ["Buy", "Sell"], key="manual_trade_type")
-            amount = st.number_input("Investment Amount ($)", min_value=0.0, max_value=float(st.session_state.balance), step=100.0)
-            if st.button("Trade"):
-                try:
-                    logger.info(f"Executing manual trade: {symbol}, ${amount}, {trade_type}")
-                    if amount <= 0:
-                        st.error("Investment amount must be greater than zero")
-                        logger.error(f"Invalid amount: {amount}")
-                    elif amount > st.session_state.balance and trade_type == "Buy":
-                        st.error("Insufficient balance")
-                        logger.error(f"Insufficient balance: {amount} > {st.session_state.balance}")
-                    elif symbol not in STOCK_LIST:
-                        st.error(f"Invalid stock symbol: {symbol}")
-                        logger.error(f"Invalid stock symbol: {symbol}")
-                    else:
-                        price = stock_data.get(symbol, 0.0)
-                        if price <= 0:
-                            st.error(f"No valid price available for {symbol}")
-                            logger.error(f"No valid price for {symbol}")
+            with st.form(key="manual_trade_form"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    symbol = st.selectbox("Select Stock", STOCK_LIST, key="manual_trade_stock")
+                with col2:
+                    trade_type = st.radio("Trade Type", ["Buy", "Sell"], key="manual_trade_type")
+                amount = st.number_input("Investment Amount ($)", min_value=0.0, max_value=float(st.session_state.balance), step=100.0)
+                if st.form_submit_button("Trade"):
+                    try:
+                        logger.info(f"Executing manual trade: {symbol}, ${amount}, {trade_type}")
+                        if amount <= 0:
+                            st.error("Investment amount must be greater than zero")
+                            logger.error(f"Invalid amount: {amount}")
+                        elif amount > st.session_state.balance and trade_type == "Buy":
+                            st.error("Insufficient balance")
+                            logger.error(f"Insufficient balance: {amount} > {st.session_state.balance}")
+                        elif symbol not in STOCK_LIST:
+                            st.error(f"Invalid stock symbol: {symbol}")
+                            logger.error(f"Invalid stock symbol: {symbol}")
                         else:
-                            quantity = amount / price
-                            trade = {
-                                "id": f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
-                                "symbol": symbol,
-                                "amount": float(amount),
-                                "price": float(price),
-                                "trade_type": trade_type.lower(),
-                                "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-                                "user_id": st.session_state.user_id,
-                                "quantity": float(quantity)
-                            }
-                            logger.debug(f"Trade data: {trade}")
-                            for attempt in range(3):
-                                try:
-                                    if add_trade(st.session_state.user_id, trade):
-                                        if trade_type == "Buy":
-                                            st.session_state.balance = float(st.session_state.balance - amount)
+                            price = stock_data.get(symbol, 0.0)
+                            if price <= 0:
+                                st.error(f"No valid price available for {symbol}")
+                                logger.error(f"No valid price for {symbol}")
+                            else:
+                                quantity = amount / price
+                                trade = {
+                                    "id": f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+                                    "symbol": symbol,
+                                    "amount": float(amount),
+                                    "price": float(price),
+                                    "trade_type": trade_type.lower(),
+                                    "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                                    "user_id": st.session_state.user_id,
+                                    "quantity": float(quantity)
+                                }
+                                logger.debug(f"Trade data: {trade}")
+                                for attempt in range(3):
+                                    try:
+                                        if add_trade(st.session_state.user_id, trade):
+                                            if trade_type == "Buy":
+                                                st.session_state.balance = float(st.session_state.balance - amount)
+                                            else:
+                                                st.session_state.balance = float(st.session_state.balance + amount)
+                                            update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
+                                            st.success(f"Trade executed: {trade_type} ${amount:.2f} of {symbol} at ${price:.2f} ({quantity:.2f} shares)")
+                                            logger.info(f"Trade saved: {symbol}, ${amount}, {trade_type}")
+                                            break
                                         else:
-                                            st.session_state.balance = float(st.session_state.balance + amount)
-                                        update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
-                                        st.success(f"Trade executed: {trade_type} ${amount:.2f} of {symbol} at ${price:.2f} ({quantity:.2f} shares)")
-                                        logger.info(f"Trade saved: {symbol}, ${amount}, {trade_type}")
+                                            st.error("Failed to save trade")
+                                            logger.error(f"Failed to save trade for {symbol}: add_trade returned False")
+                                            break
+                                    except mysql.connector.errors.IntegrityError as e:
+                                        logger.error(f"IntegrityError in add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                        if attempt < 2:
+                                            logger.warning(f"Retrying trade save for {symbol}...")
+                                            time.sleep(1)
+                                            continue
+                                        st.error(f"Failed to save trade: Database integrity error (e.g., duplicate trade ID)")
                                         break
-                                    else:
-                                        st.error("Failed to save trade")
-                                        logger.error(f"Failed to save trade for {symbol}: add_trade returned False")
+                                    except mysql.connector.errors.DatabaseError as e:
+                                        logger.error(f"DatabaseError in add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                        if attempt < 2:
+                                            logger.warning(f"Retrying trade save for {symbol}...")
+                                            time.sleep(1)
+                                            continue
+                                        st.error(f"Failed to save trade: Database error")
                                         break
-                                except mysql.connector.errors.IntegrityError as e:
-                                    logger.error(f"IntegrityError in add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
-                                    if attempt < 2:
-                                        logger.warning(f"Retrying trade save for {symbol}...")
-                                        time.sleep(1)
-                                        continue
-                                    st.error(f"Failed to save trade: Database integrity error (e.g., duplicate trade ID)")
-                                    break
-                                except mysql.connector.errors.DatabaseError as e:
-                                    logger.error(f"DatabaseError in add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
-                                    if attempt < 2:
-                                        logger.warning(f"Retrying trade save for {symbol}...")
-                                        time.sleep(1)
-                                        continue
-                                    st.error(f"Failed to save trade: Database error")
-                                    break
-                                except Exception as e:
-                                    logger.error(f"Unexpected error in add_trade (attempt {attempt + 1}): {str(e)}")
-                                    st.error(f"Failed to save trade: Unexpected error")
-                                    break
-                except Exception as e:
-                    logger.error(f"Failed to execute trade: {str(e)}")
-                    st.error(f"Failed to execute trade: {str(e)}")
+                                    except Exception as e:
+                                        logger.error(f"Unexpected error in add_trade (attempt {attempt + 1}): {str(e)}")
+                                        st.error(f"Failed to save trade: Unexpected error")
+                                        break
+                    except Exception as e:
+                        logger.error(f"Failed to execute trade: {str(e)}")
+                        st.error(f"Failed to execute trade: {str(e)}")
         else:
-            st.subheader("Agent-Based Trade Simulation")
+            st.markdown("<h3 style='color: #ffffff;'>Agent-Based Trade Simulation</h3>", unsafe_allow_html=True)
             with st.form(key="agent_trade_form"):
-                risk_appetite = st.selectbox(
-                    "Risk Appetite",
-                    ["low", "medium", "high"],
-                    help="Select 'low' for safe/secure/cautious, 'high' for aggressive/risky, or 'medium' otherwise.",
-                    key="agent_risk"
-                )
-                investment_goals = st.selectbox(
-                    "Investment Goals",
-                    ["retirement", "growth", "income"],
-                    help="Select 'retirement' for long-term savings, 'growth' for wealth/expansion, 'income' for dividends/passive.",
-                    key="agent_goals"
-                )
-                time_horizon = st.selectbox(
-                    "Time Horizon",
-                    ["short", "medium", "long"],
-                    help="Select 'short' for 1-3 years, 'medium' for 3-7 years, 'long' for 7+ years.",
-                    key="agent_horizon"
-                )
+                col1, col2 = st.columns(2)
+                with col1:
+                    risk_appetite = st.selectbox(
+                        "Risk Appetite",
+                        ["low", "medium", "high"],
+                        help="Select 'low' for safe/secure/cautious, 'high' for aggressive/risky, or 'medium' otherwise.",
+                        key="agent_risk"
+                    )
+                    investment_goals = st.selectbox(
+                        "Investment Goals",
+                        ["retirement", "growth", "income"],
+                        help="Select 'retirement' for long-term savings, 'growth' for wealth/expansion, 'income' for dividends/passive.",
+                        key="agent_goals"
+                    )
+                with col2:
+                    time_horizon = st.selectbox(
+                        "Time Horizon",
+                        ["short", "medium", "long"],
+                        help="Select 'short' for 1-3 years, 'medium' for 3-7 years, 'long' for 7+ years.",
+                        key="agent_horizon"
+                    )
+                    investment_style = st.selectbox(
+                        "Investment Style",
+                        ["value", "growth", "index"],
+                        help="Select 'index' for passive investing, or choose 'value' or 'growth'.",
+                        key="agent_style"
+                    )
                 investment_amount = st.number_input(
                     "Investment Amount ($)",
                     min_value=0.0,
@@ -354,12 +544,6 @@ else:
                     step=100.0,
                     help="Enter the amount you wish to invest (e.g., 5000.0).",
                     key="agent_amount"
-                )
-                investment_style = st.selectbox(
-                    "Investment Style",
-                    ["value", "growth", "index"],
-                    help="Select 'index' for passive investing, or choose 'value' or 'growth'.",
-                    key="agent_style"
                 )
                 submit_button = st.form_submit_button("Execute Agent-Based Trade")
 
@@ -457,8 +641,8 @@ else:
                         st.warning("API rate limit exceeded. Please wait a few minutes and try again.")
 
     elif page == "Portfolio":
-        st.header("Your Portfolio")
-        st.subheader("Current Holdings")
+        st.markdown("<h2 class='subheader'>💼 Your Portfolio</h2>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #ffffff;'>Current Holdings</h3>", unsafe_allow_html=True)
         try:
             logger.info(f"Fetching portfolio for user {st.session_state.user_id}")
             if "last_portfolio_refresh" not in st.session_state:
@@ -493,11 +677,9 @@ else:
                 transaction_history = {}
                 for trade in trades:
                     symbol = trade["symbol"]
-                    # quantity = trade.get("quantity", trade["amount"] / trade["price"])
                     if not all(isinstance(trade.get(key), (int, float, Decimal)) and trade.get(key) > 0 for key in ["amount", "price"]):
                         logger.warning(f"Skipping invalid trade for {symbol}: amount={trade['amount']}, price={trade['price']}")
                         continue
-                    # Calculate quantity since trades table lacks quantity column
                     quantity = float(trade["amount"]) / float(trade["price"]) if trade["amount"] and trade["price"] else 0.0
                     if symbol not in holdings:
                         holdings[symbol] = {"quantity": 0, "total_cost": 0, "buy_trades": 0, "realized_profit": 0}
@@ -593,7 +775,7 @@ else:
                 else:
                     st.info("No active holdings in your portfolio.")
 
-                st.subheader("Transaction History")
+                st.markdown("<h3 style='color: #ffffff;'>Transaction History</h3>", unsafe_allow_html=True)
                 for symbol, transactions in transaction_history.items():
                     with st.expander(f"Transactions for {symbol}"):
                         st.table(pd.DataFrame(transactions))
@@ -602,7 +784,7 @@ else:
             st.error(f"Failed to load portfolio: {str(e)}")
 
     elif page == "Leaderboard":
-        st.header("Leaderboard")
+        st.markdown("<h2 class='subheader'>🏆 Leaderboard</h2>", unsafe_allow_html=True)
         try:
             logger.info("Fetching leaderboard")
             leaderboard = get_leaderboard()
@@ -610,9 +792,3 @@ else:
         except Exception as e:
             logger.error(f"Failed to load leaderboard: {str(e)}")
             st.error(f"Failed to load leaderboard: {str(e)}")
-
-    try:
-        st.sidebar.write(f"Virtual Balance: ${st.session_state.balance:.2f}")
-    except Exception as e:
-        logger.error(f"Failed to display balance: {str(e)}")
-        st.error(f"Failed to display balance: {str(e)}")
