@@ -10,7 +10,7 @@ from cachetools import TTLCache
 import time
 import mysql.connector
 from scripts.fetch_stock_prices import fetch_stock_prices
-from utils.config import FINNHUB_API_KEY
+from utils.config import FINNHUB_API_KEY, GNEWS_API_KEY
 from utils.logger import logger
 from agents import EducatorAgent, StrategistAgent, MarketAnalystAgent, ExecutorAgent, MonitorGuardrailAgent, run_workflow
 from auth.auth import sign_up, sign_in, get_user
@@ -18,7 +18,7 @@ from gamification.leaderboard import update_leaderboard, get_leaderboard
 from gamification.virtual_currency import get_balance, add_trade, get_portfolio
 from data.mysql_db import get_db_connection
 import requests
-from utils.config import NEWSAPI_KEY
+import json
 
 # Project setup
 project_root = str(Path(__file__).parent)
@@ -328,6 +328,36 @@ def update_stock_price_in_db(symbol: str, quote: dict):
     except Exception as e:
         logger.error(f"Failed to update price in DB for {symbol}: {str(e)}")
 
+# News fetching function for server-side API
+def fetch_news(symbol: str):
+    try:
+        url = f"https://gnews.io/api/v4/search?q={symbol}&lang=en&max=5&apikey={GNEWS_API_KEY}"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        articles = response.json().get("articles", [])
+        news_data = [
+            {
+                "title": article["title"],
+                "summary": article["description"] or "No summary available",
+                "url": article["url"]
+            }
+            for article in articles if article.get("title") and article.get("url")
+        ][:5]  # Ensure only top 5
+        logger.info(f"Fetched {len(news_data)} news articles for {symbol}")
+        return news_data
+    except Exception as e:
+        logger.error(f"Failed to fetch news for {symbol}: {str(e)}")
+        return []
+
+# Streamlit endpoint for news fetching
+def news_endpoint():
+    symbol = st.query_params.get("symbol", None)
+    if not symbol:
+        st.error("No symbol provided")
+        return
+    news_data = fetch_news(symbol)
+    st.json(news_data)
+
 # Initialize session state
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -385,12 +415,16 @@ if not st.session_state.authenticated:
                         st.error(f"Sign-up failed: {str(e)}")
             st.markdown("</div>", unsafe_allow_html=True)
 else:
-    # Main application UI
-    st.markdown(f"<h1 class='header'>Welcome, {st.session_state.username}! 👋</h1>", unsafe_allow_html=True)
-    
-    # Custom navigation sidebar
-    st.sidebar.markdown("<h2 style='color: #ffffff;'>Navigation</h2>", unsafe_allow_html=True)
-    nav_items = ["Home", "Get Recommendations", "Learn", "Trade", "Portfolio", "Leaderboard"]
+    # Check for news endpoint request
+    if st.query_params.get("endpoint", None) == "news":
+        news_endpoint()
+    else:
+        # Main application UI
+        st.markdown(f"<h1 class='header'>Welcome, {st.session_state.username}! 👋</h1>", unsafe_allow_html=True)
+        
+        # Custom navigation sidebar
+        st.sidebar.markdown("<h2 style='color: #ffffff;'>Navigation</h2>", unsafe_allow_html=True)
+    nav_items = ["Home", "Get Recommendations", "Trade", "Portfolio", "Leaderboard"]
     selected_page = st.session_state.get("page", "Home")
     
     for item in nav_items:
@@ -442,28 +476,10 @@ else:
             if not stock_data:
                 st.error("Failed to load stock prices.")
             else:
-                # NewsAPI setup
-                news_cache = TTLCache(maxsize=100, ttl=3600)  # Cache news for 1 hour
-
-                def fetch_news(symbol):
-                    cache_key = f"news_{symbol}"
-                    if cache_key in news_cache:
-                        return news_cache[cache_key]
-                    try:
-                        url = f"https://newsapi.org/v2/everything?q={symbol}&apiKey={NEWSAPI_KEY}&language=en&pageSize=5"
-                        response = requests.get(url)
-                        response.raise_for_status()
-                        articles = response.json().get("articles", [])
-                        news_data = [
-                            {"title": article["title"], "summary": article["description"] or "No summary available", "url": article["url"]}
-                            for article in articles if article.get("title") and article.get("description")
-                        ]
-                        news_cache[cache_key] = news_data
-                        return news_data
-                    except Exception as e:
-                        logger.error(f"Failed to fetch news for {symbol}: {str(e)}")
-                        return []
-
+                # Initialize session state for news toggle
+                if "show_news" not in st.session_state:
+                    st.session_state.show_news = {}
+                    
                 cols = st.columns(2)  # Create two columns
                 for i, symbol in enumerate(STOCK_LIST):
                     with cols[i % 2]:  # Alternate between columns
@@ -474,49 +490,63 @@ else:
                         previous_close = data["previous_close"]
                         status = "profit" if current_price > previous_close else "loss" if current_price < previous_close else ""
                         status_icon = "↑" if status == "profit" else "↓" if status == "loss" else ""
-                        news = fetch_news(symbol)
-                        st.markdown(f"""
-                            <div class='stock-card' style='width: 95%; margin: 5px; position: relative;'>
-                                <h3 style='color: #ffffff; margin: 0;'>{symbol}</h3>
-                                <div class='stock-price'>${current_price:.2f} <span class='{status}'>{status_icon}</span></div>
-                                <div class='stock-details'>High: ${high_price:.2f} | Low: ${low_price:.2f}</div>
-                                <a href='#' onclick='showNewsPopup(\"{symbol}\", {str(news).replace("'", '"')}); return false;' style='position: absolute; top: 10px; right: 10px; font-size: 24px; color: #ffffff; text-decoration: none;'>📰</a>
+
+                        # Create a unique key for the news toggle button
+                        news_key = f"news_{symbol}"
+                        # Toggle news display when icon is clicked
+                        if st.button("📰", key=news_key, help=f"Show/hide news for {symbol}"):
+                            st.session_state.show_news[symbol] = not st.session_state.show_news.get(symbol, False)
+                            st.rerun()
+
+                        # Build the stock card HTML (without news)
+                        card_html = f"""
+                            <div class='stock-card' style='width: 95%; margin: 5px; position: relative; padding: 15px; border-radius: 8px; background: #2d2d2d;'>
+                                <h3 style='color: #ffffff; margin: 0 0 10px 0; font-size: 18px;'>{symbol}</h3>
+                                <div class='stock-price' style='font-size: 24px; font-weight: bold; color: #ffffff;'>${current_price:.2f} <span class='{status}'>{status_icon}</span></div>
+                                <div class='stock-details' style='font-size: 14px; color: #d1d5db; margin-top: 5px;'>High: ${high_price:.2f} | Low: ${low_price:.2f}</div>
                             </div>
-                        """, unsafe_allow_html=True)
+                        """
+                        st.markdown(card_html, unsafe_allow_html=True)
+
+                        # If news is toggled on, fetch and display the top news article separately
+                        if st.session_state.show_news.get(symbol, False):
+                            logger.info(f"Rendering news for {symbol}")
+                            news_data = fetch_news(symbol)
+                            news_html = ""
+                            if news_data and len(news_data) > 0:
+                                top_article = news_data[0]  # Take the first article
+                                summary = top_article["summary"][:100] + "..." if len(top_article["summary"]) > 100 else top_article["summary"]
+                                news_html = f"""
+                                    <div style='width: 95%; margin: 5px; padding: 15px; border-radius: 8px; background: #2d2d2d; margin-top: 2px; border-top: 1px solid #4b5563;'>
+                                        <a href='{top_article["url"]}' target='_blank' style='color: #22c55e; font-size: 16px; font-weight: bold; text-decoration: none; display: block; margin-bottom: 8px;'>{top_article["title"]}</a>
+                                        <p style='color: #d1d5db; font-size: 14px; line-height: 1.5; margin: 0;'>{summary}</p>
+                                    </div>
+                                """
+                                logger.debug(f"News HTML for {symbol}: {news_html}")
+                            else:
+                                news_html = """
+                                    <div style='width: 95%; margin: 5px; padding: 15px; border-radius: 8px; background: #2d2d2d; margin-top: 2px; border-top: 1px solid #4b5563;'>
+                                        <p style='color: #d1d5db; font-size: 14px; margin: 0;'>No news available.</p>
+                                    </div>
+                                """
+                                logger.debug(f"No news available for {symbol}")
+                            # Use st.write instead of st.markdown for HTML content
+                            st.write(news_html, unsafe_allow_html=True)
         except Exception as e:
             logger.error(f"Failed to load stock prices for Home page: {str(e)}")
             st.error(f"Failed to load stock prices: {str(e)}")
 
-        # JavaScript for news popup
+        # Add CSS for hover effect and improved styling
         st.markdown("""
-            <script>
-            function showNewsPopup(symbol, newsData) {
-                let popup = document.getElementById('newsPopup');
-                if (!popup) {
-                    popup = document.createElement('div');
-                    popup.id = 'newsPopup';
-                    popup.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2d2d2d; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 1000; max-height: 80vh; overflow-y: auto; color: #ffffff; width: 400px; display: none;';
-                    popup.innerHTML = '<h3 style="margin-top: 0;">News for ' + symbol + '</h3><button onclick="this.parentElement.style.display=\'none\'" style="position: absolute; top: 10px; right: 10px; background: #ef4444; color: #ffffff; border: none; border-radius: 4px; padding: 5px 10px;">X</button><div id="newsContent"></div>';
-                    document.body.appendChild(popup);
-                }
-                let content = document.getElementById('newsContent');
-                content.innerHTML = '';
-                newsData.forEach(article => {
-                    let div = document.createElement('div');
-                    div.style.marginBottom = '15px';
-                    div.innerHTML = `<a href="${article.url}" target="_blank" style="color: #22c55e; font-size: 18px; text-decoration: underline;">${article.title}</a><p style="margin: 5px 0; font-size: 14px;">${article.summary}</p>`;
-                    content.appendChild(div);
-                });
-                popup.style.display = 'block';
-            }
-            </script>
             <style>
-            .stock-card a:hover {
-                color: #22c55e;
+            .stock-card a:hover, .news-section a:hover {
+                color: #4ade80 !important;
+            }
+            .stock-card, .news-section {
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             }
             </style>
         """, unsafe_allow_html=True)
-
     elif page == "Get Recommendations":
         st.markdown("<h2 class='subheader'>📊 Get Personalized Stock Recommendations</h2>", unsafe_allow_html=True)
         with st.form(key="preferences_form"):
@@ -597,19 +627,6 @@ else:
                     logger.warning("No recommendations generated")
                     st.error("No recommendations generated. Possible issues: invalid data, API errors, or rate limits.")
                     st.info("Check finance_simulator/logs/app.log for details.")
-
-    elif page == "Learn":
-        st.markdown("<h2 class='subheader'>📚 Learn Investment Strategies</h2>", unsafe_allow_html=True)
-        try:
-            educator = EducatorAgent()
-            strategy = st.selectbox("Choose a strategy", ["Value Investing", "Growth Investing", "Dividend Investing"])
-            if st.button("Learn"):
-                logger.info(f"Fetching education for strategy: {strategy}")
-                advice = educator.provide_education(strategy)
-                st.write(advice)
-        except Exception as e:
-            logger.error(f"Failed to load educational content: {str(e)}")
-            st.error(f"Failed to load educational content: {str(e)}")
 
     elif page == "Trade":
         st.markdown("<h2 class='subheader'>💹 Trade Stocks</h2>", unsafe_allow_html=True)
@@ -974,8 +991,27 @@ else:
             leaderboard = get_leaderboard()
             if leaderboard:
                 top_user = leaderboard[0]
-                st.markdown(f"<div class='top-user'>Top Investor: {top_user['username']} with {top_user['balance']}</div>", unsafe_allow_html=True)
-                st.table(pd.DataFrame(leaderboard, columns=["Username", "balance"]).rename(columns={"balance": "Masked Balance"}))
+                st.markdown(f"<div class='top-user'>Top Investor: {top_user['username']} with ${float(top_user['balance']):,.2f}</div>", unsafe_allow_html=True)
+                
+                df = pd.DataFrame(leaderboard, columns=["username", "balance"]).rename(columns={"balance": "Masked Balance","username":"Username"})
+                df.reset_index(drop=True, inplace=True)
+                df["Masked Balance"] = df["Masked Balance"].apply(lambda x: f"${float(x):,.2f}")
+
+                # Use st.write with .to_html and unsafe_allow_html=True to hide index
+                st.write(df.to_html(index=False, classes='table table-striped', justify='center'), unsafe_allow_html=True)
+
+                # Optionally, add some CSS to style the table via st.markdown
+                st.markdown("""
+                    <style>
+                    .table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        text-align: center;
+                        font-weight: bold;
+                    }
+                    </style>
+                """, unsafe_allow_html=True)
+
             else:
                 st.info("No leaderboard data available.")
         except Exception as e:

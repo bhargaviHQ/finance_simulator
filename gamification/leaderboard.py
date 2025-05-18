@@ -43,29 +43,29 @@ def update_leaderboard(user_id: str, username: str, balance: float):
 
 def get_leaderboard():
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
         cursor.execute("""
-            SELECT username, balance
-            FROM users 
-            ORDER BY balance DESC 
+            SELECT u.username, u.balance
+            FROM users u
+            WHERE EXISTS (
+                SELECT 1 FROM trades t WHERE t.user_id = u.id
+            )
+            ORDER BY u.balance DESC
             LIMIT 10
         """)
+
         leaderboard = cursor.fetchall()
-        # Mask balances in the leaderboard
-        for entry in leaderboard:
-            entry["balance"] = mask_balance(entry["balance"])
-        cursor.close()
-        conn.close()
-        logger.info("Leaderboard retrieved")
+
+        for user in leaderboard:
+            user["masked_balance"] = mask_balance(user["balance"])
+
         return leaderboard
-    except mysql.connector.Error as e:
-        logger.error(f"Failed to get leaderboard: SQL Error: {str(e)}")
-        return []
     except Exception as e:
-        logger.error(f"Unexpected error getting leaderboard: {str(e)}")
+        logging.error("Error getting leaderboard: %s", e)
         return []
     finally:
-        if 'conn' in locals() and conn.is_connected():
+        if connection.is_connected():
             cursor.close()
-            conn.close()
+            connection.close()
