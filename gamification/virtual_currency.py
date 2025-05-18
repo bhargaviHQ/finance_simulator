@@ -61,7 +61,7 @@ def add_trade(user_id: str, trade: dict) -> bool:
 
         # Insert trade
         cursor.execute("""
-            INSERT INTO trades (id, user_id, symbol, amount, price, type, timestamp)
+            INSERT INTO trades (id, user_id, symbol, amount, price, trade_type, timestamp)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             trade["id"],
@@ -69,7 +69,7 @@ def add_trade(user_id: str, trade: dict) -> bool:
             trade["symbol"],
             trade["amount"],
             trade["price"],
-            trade["type"],
+            trade["trade_type"],
             trade["timestamp"]
         ))
 

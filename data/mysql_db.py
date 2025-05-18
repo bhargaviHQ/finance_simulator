@@ -170,8 +170,8 @@ def save_trade(user_id, trade):
             INSERT INTO trades (id, user_id, symbol, amount, price, trade_type, timestamp)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
-            trade["id"], user_id, trade["symbol"], trade["amount"], trade["price"],
-            trade["type"], trade["timestamp"]
+            trade["id"], user_id, trade["symbol"], trade["amount"], trade["price"], trade["trade_type"],
+            trade["timestamp"], trade["trade_type"]
         ))
         connection.commit()
     except Exception as e:

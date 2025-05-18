@@ -319,7 +319,7 @@ else:
                                 "symbol": symbol,
                                 "amount": float(amount),
                                 "price": float(price),
-                                "type": trade_type.lower(),
+                                "trade_type": trade_type.lower(),
                                 "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
                                 "user_id": st.session_state.user_id,
                                 "quantity": float(quantity)
@@ -386,15 +386,15 @@ else:
                             trade["id"] = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
                             trade["timestamp"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
                             trade["amount"] = trade["price"] * trade["quantity"]
-                            if trade["amount"] <= st.session_state.balance or trade["type"] == "sell":
+                            if trade["amount"] <= st.session_state.balance or trade["trade_type"] == "sell":
                                 try:
                                     if add_trade(st.session_state.user_id, trade):
-                                        if trade["type"] == "buy":
+                                        if trade["trade_type"] == "buy":
                                             st.session_state.balance = float(st.session_state.balance - trade["amount"])
                                         else:
                                             st.session_state.balance = float(st.session_state.balance + trade["amount"])
                                         update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
-                                        st.success(f"Agent executed trade: {trade['type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
+                                        st.success(f"Agent executed trade: {trade['trade_type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
                                     else:
                                         st.error("Failed to save trade")
                                         logger.error(f"Failed to save agent-based trade for {trade['symbol']}: add_trade returned False")
@@ -462,7 +462,7 @@ else:
                         transaction_history[symbol] = []
                     
                     try:
-                        if trade["type"] == "buy":
+                        if trade["trade_type"] == "buy":
                             holdings[symbol]["quantity"] += quantity
                             holdings[symbol]["total_cost"] += trade["amount"]
                             holdings[symbol]["buy_trades"] += 1
@@ -482,7 +482,7 @@ else:
                         continue
                     
                     transaction_history[symbol].append({
-                        "Type": trade["type"].capitalize(),
+                        "Type": trade["trade_type"].capitalize(),
                         "Quantity": quantity,
                         "Price ($)": trade["price"],
                         "Amount ($)": trade["amount"],
@@ -566,7 +566,14 @@ else:
         try:
             logger.info("Fetching leaderboard")
             leaderboard = get_leaderboard()
-            st.table(pd.DataFrame(leaderboard, columns=["Username", "Balance", "Badges"]))
+            df = pd.DataFrame(leaderboard)
+            df.rename(columns={
+                'username': 'Username',
+                'balance': 'Balance',
+                'badges': 'Badges'
+            }, inplace=True)
+            df['Badges'] = df['Badges'].fillna('None')
+            st.table(df)
         except Exception as e:
             logger.error(f"Failed to load leaderboard: {str(e)}")
             st.error(f"Failed to load leaderboard: {str(e)}")
