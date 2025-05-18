@@ -65,11 +65,8 @@ def get_db_connection(attempts=3, delay=5):
     return None
 
 def get_stock_price_from_db(symbol: str) -> dict:
-    """Retrieve the latest stock price from the database."""
-    conn = get_db_connection()
-    if not conn:
-        return None
     try:
+        conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
             SELECT open_price, close_price, high_price, low_price, current_price, last_updated
@@ -80,29 +77,24 @@ def get_stock_price_from_db(symbol: str) -> dict:
         cursor.close()
         conn.close()
         if result:
-            if isinstance(result["current_price"], (int, float)) and result["current_price"] > 0:
-                if result["last_updated"] >= datetime.now(timezone.utc) - timedelta(hours=24):
-                    logger.info(f"Fetched recent price for {symbol} from DB: ${result['current_price']:.2f}")
-                    return {
-                        "o": result["open_price"] or 0.0,
-                        "c": result["current_price"],
-                        "h": result["high_price"] or 0.0,
-                        "l": result["low_price"] or 0.0,
-                        "pc": result["close_price"] or 0.0
-                    }
-                else:
-                    logger.info(f"Price for {symbol} in DB is outdated: {result['last_updated']}")
-            else:
-                logger.info(f"Invalid price for {symbol} in DB: {result['current_price']}")
-        else:
-            logger.info(f"No price record for {symbol} in DB")
+            # Ensure last_updated is offset-aware
+            last_updated = result["last_updated"]
+            if last_updated.tzinfo is None:
+                last_updated = last_updated.replace(tzinfo=timezone.utc)
+            if last_updated >= datetime.now(timezone.utc) - timedelta(hours=1):
+                logger.info(f"Fetched recent price for {symbol} from DB")
+                return {
+                    "o": float(result["open_price"]),
+                    "c": float(result["current_price"]),
+                    "h": float(result["high_price"]),
+                    "l": float(result["low_price"]),
+                    "pc": float(result["close_price"])
+                }
+        logger.info(f"No recent price for {symbol} in DB")
         return None
-    except Error as e:
+    except Exception as e:
         logger.error(f"Failed to fetch price from DB for {symbol}: {str(e)}")
         return None
-    finally:
-        if conn.is_connected():
-            conn.close()
 
 def update_stock_price_in_db(symbol: str, quote: dict):
     """Update or insert stock price in the database."""

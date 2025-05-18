@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import finnhub
+from decimal import Decimal
 from cachetools import TTLCache
 import time
 import mysql.connector
@@ -281,7 +282,7 @@ else:
                                 "symbol": symbol,
                                 "amount": float(amount),
                                 "price": float(price),
-                                "type": trade_type.lower(),
+                                "trade_type": trade_type.lower(),
                                 "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
                                 "user_id": st.session_state.user_id,
                                 "quantity": float(quantity)
@@ -326,13 +327,56 @@ else:
                     logger.error(f"Failed to execute trade: {str(e)}")
                     st.error(f"Failed to execute trade: {str(e)}")
         else:
-            if st.button("Execute Agent-Based Trade"):
+            st.subheader("Agent-Based Trade Simulation")
+            with st.form(key="agent_trade_form"):
+                risk_appetite = st.selectbox(
+                    "Risk Appetite",
+                    ["low", "medium", "high"],
+                    help="Select 'low' for safe/secure/cautious, 'high' for aggressive/risky, or 'medium' otherwise.",
+                    key="agent_risk"
+                )
+                investment_goals = st.selectbox(
+                    "Investment Goals",
+                    ["retirement", "growth", "income"],
+                    help="Select 'retirement' for long-term savings, 'growth' for wealth/expansion, 'income' for dividends/passive.",
+                    key="agent_goals"
+                )
+                time_horizon = st.selectbox(
+                    "Time Horizon",
+                    ["short", "medium", "long"],
+                    help="Select 'short' for 1-3 years, 'medium' for 3-7 years, 'long' for 7+ years.",
+                    key="agent_horizon"
+                )
+                investment_amount = st.number_input(
+                    "Investment Amount ($)",
+                    min_value=0.0,
+                    value=10000.0,
+                    step=100.0,
+                    help="Enter the amount you wish to invest (e.g., 5000.0).",
+                    key="agent_amount"
+                )
+                investment_style = st.selectbox(
+                    "Investment Style",
+                    ["value", "growth", "index"],
+                    help="Select 'index' for passive investing, or choose 'value' or 'growth'.",
+                    key="agent_style"
+                )
+                submit_button = st.form_submit_button("Execute Agent-Based Trade")
+
+            if submit_button:
                 try:
-                    preferences = st.session_state.get("preferences", None)
-                    if not preferences:
-                        st.warning("Please submit preferences in 'Get Recommendations' first.")
+                    if investment_amount <= 0:
+                        st.error("Investment amount must be greater than zero.")
+                        logger.error(f"Invalid investment amount: {investment_amount}")
                     else:
-                        logger.info(f"Starting agent-based trade with preferences: {preferences}")
+                        preferences = {
+                            "risk_appetite": risk_appetite,
+                            "investment_goals": investment_goals,
+                            "time_horizon": time_horizon,
+                            "investment_amount": float(investment_amount),
+                            "investment_style": investment_style
+                        }
+                        logger.info(f"Agent-based trade preferences: {preferences}")
                         st.info("Fetching stock data, financials, and news sentiment...")
                         with st.spinner("Generating trade recommendation..."):
                             result = run_workflow(preferences, st.session_state.user_id)
@@ -345,7 +389,7 @@ else:
                             for attempt in range(3):
                                 try:
                                     quote = finnhub_client.quote(trade["symbol"])
-                                    trade["price"] = quote.get("c", 0.0)
+                                    trade["price"] = float(quote.get("c", 0.0))
                                     update_stock_price_in_db(trade["symbol"], quote)
                                     break
                                 except Exception as e:
@@ -363,18 +407,18 @@ else:
                                         raise
                             trade["id"] = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
                             trade["timestamp"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-                            trade["amount"] = trade["price"] * trade["quantity"]
-                            if trade["amount"] <= st.session_state.balance or trade["type"] == "sell":
+                            trade["amount"] = float(trade["price"]) * float(trade["quantity"])
+                            if trade["amount"] <= st.session_state.balance or trade["trade_type"] == "sell":
                                 for attempt in range(3):
                                     try:
                                         if add_trade(st.session_state.user_id, trade):
-                                            if trade["type"] == "buy":
+                                            if trade["trade_type"] == "buy":
                                                 st.session_state.balance = float(st.session_state.balance - trade["amount"])
                                             else:
                                                 st.session_state.balance = float(st.session_state.balance + trade["amount"])
                                             update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
-                                            st.success(f"Agent executed trade: {trade['type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
-                                            logger.info(f"Agent trade saved: {trade['symbol']}, ${trade['amount']}, {trade['type']}")
+                                            st.success(f"Agent executed trade: {trade['trade_type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
+                                            logger.info(f"Agent trade saved: {trade['symbol']}, ${trade['amount']}, {trade['trade_type']}")
                                             break
                                         else:
                                             st.error("Failed to save trade")
@@ -449,13 +493,18 @@ else:
                 transaction_history = {}
                 for trade in trades:
                     symbol = trade["symbol"]
-                    quantity = trade.get("quantity", trade["amount"] / trade["price"])
+                    # quantity = trade.get("quantity", trade["amount"] / trade["price"])
+                    if not all(isinstance(trade.get(key), (int, float, Decimal)) and trade.get(key) > 0 for key in ["amount", "price"]):
+                        logger.warning(f"Skipping invalid trade for {symbol}: amount={trade['amount']}, price={trade['price']}")
+                        continue
+                    # Calculate quantity since trades table lacks quantity column
+                    quantity = float(trade["amount"]) / float(trade["price"]) if trade["amount"] and trade["price"] else 0.0
                     if symbol not in holdings:
                         holdings[symbol] = {"quantity": 0, "total_cost": 0, "buy_trades": 0, "realized_profit": 0}
                         transaction_history[symbol] = []
                     
                     try:
-                        if trade["type"] == "buy":
+                        if trade["trade_type"] == "buy":
                             holdings[symbol]["quantity"] += quantity
                             holdings[symbol]["total_cost"] += trade["amount"]
                             holdings[symbol]["buy_trades"] += 1
@@ -475,7 +524,7 @@ else:
                         continue
                     
                     transaction_history[symbol].append({
-                        "Type": trade["type"].capitalize(),
+                        "trade_type": trade["trade_type"].capitalize(),
                         "Quantity": quantity,
                         "Price ($)": trade["price"],
                         "Amount ($)": trade["amount"],

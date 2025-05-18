@@ -15,11 +15,11 @@ class ExecutorAgent:
                 "user_id": user_id,
                 "symbol": recommendation[symbol_key],
                 "quantity": recommendation.get("Quantity", 0),
-                "type": recommendation.get("Action", "").lower()
+                "trade_type": recommendation.get("Action", "").lower()
             }
-            if trade["type"] not in ["buy", "sell"]:
-                logger.error(f"Invalid trade action: {trade['type']}")
-                raise ValueError(f"Invalid action: {trade['type']}")
+            if trade["trade_type"] not in ["buy", "sell"]:
+                logger.error(f"Invalid trade action: {trade['trade_type']}")
+                raise ValueError(f"Invalid action: {trade['trade_type']}")
             if trade["quantity"] <= 0:
                 logger.error(f"Invalid trade quantity: {trade['quantity']}")
                 raise ValueError(f"Invalid quantity: {trade['quantity']}")
