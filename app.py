@@ -17,6 +17,8 @@ from auth.auth import sign_up, sign_in, get_user
 from gamification.leaderboard import update_leaderboard, get_leaderboard
 from gamification.virtual_currency import get_balance, add_trade, get_portfolio
 from data.mysql_db import get_db_connection
+import requests
+from utils.config import NEWSAPI_KEY
 
 # Project setup
 project_root = str(Path(__file__).parent)
@@ -68,6 +70,8 @@ st.markdown("""
         padding: 10px 20px;
         transition: all 0.3s ease;
         border: none;
+        width: 100%;
+        font-size: 16px;
     }
     .stButton>button:hover {
         background-color: #6b7280;
@@ -78,7 +82,9 @@ st.markdown("""
         color: #ffffff;
         border-radius: 8px;
         border: 1px solid #4b5563;
-        padding: 10px;
+        padding: 8px;
+        font-size: 16px;
+        width: 100%;
     }
     .stSelectbox [data-baseweb="select"] {
         background-color: #374151;
@@ -110,6 +116,7 @@ st.markdown("""
         font-size: 2.5em;
         color: #ffffff;
         margin-bottom: 20px;
+        text-align: center;
     }
     .subheader {
         font-size: 1.5em;
@@ -129,33 +136,127 @@ st.markdown("""
     .stMarkdown, .stMarkdown p, .stMarkdown div {
         color: #ffffff;
     }
+    .stTabs {
+        width: 400px;
+        margin: 0 auto;
+    }
     .stTabs [data-baseweb="tab"] {
         color: #d1d5db;
+        background-color: #2d2d2d;
+        border-radius: 8px 8px 0 0;
+        padding: 10px 20px;
+        margin-right: 5px;
+        width: 50%;
+        text-align: center;
+        font-size: 16px;
     }
     .stTabs [data-baseweb="tab"][aria-selected="true"] {
         color: #ffffff;
+        background-color: #4b5563;
         font-weight: bold;
     }
+    .stock-card {
+        background-color: #2d2d2d;
+        padding: 10px;
+        border-radius: 8px;
+        margin: 5px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    .stock-card a:hover {
+        color: #22c55e;
+    }
+    .stock-price {
+        font-size: 2em;
+        font-weight: bold;
+        color: #ffffff;
+    }
+    .stock-details {
+        font-size: 1em;
+        color: #d1d5db;
+    }
+    .profit {
+        color: #22c55e;
+        font-weight: bold;
+    }
+    .loss {
+        color: #ef4444;
+        font-weight: bold;
+    }
+    .top-user {
+        font-size: 1.5em;
+        color: #ffffff;
+        background-color: #1e40af;
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+    .auth-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        padding: 20px 0;
+    }
+    .auth-card {
+        background-color: #2d2d2d;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        width: 400px;
+        text-align: center;
+    }
+    .auth-title {
+        font-size: 2.2em;
+        color: #ffffff;
+        margin-bottom: 10px;
+    }
+    .auth-input-label {
+        text-align: left;
+        color: #d1d5db;
+        font-size: 14px;
+        margin-bottom: 5px;
+        margin-top: 10px;
+    }
+    .auth-button {
+        background-color: #1e40af;
+        color: #ffffff;
+        font-weight: bold;
+        transition: all 0.3s ease;
+        margin-top: 20px;
+        padding: 10px;
+        border-radius: 8px;
+    }
+    .auth-button:hover {
+        background-color: #2563eb;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
     *:focus {
-    outline: none !important;
-    box-shadow: 0 0 0 2px #ffffff !important; /* cool slate blue */
+        outline: none !important;
+        box-shadow: 0 0 0 2px #ffffff !important;
     }
-
     input:invalid, select:invalid, textarea:invalid {
-        border-color: #ffffff !important;
+        border-color: #ef4444 !important;
     }
-
-    .stButton>button:focus {
-        box-shadow: 0 0 0 3px #ffffff !important;
+    .stButton>button {
+        background-color: #4b5563;
+        color: #ffffff;
+        border-radius: 8px;
+        padding: 10px 20px;
+        transition: all 0.3s ease;
+        border: none;
+        width: 100%;
+        font-size: 16px;
     }
     .nav-item:hover {
-    background-color: #374151;
-    color: #cbd5e1; /* cool light grey-blue */
-    transform: translateX(5px);
+        background-color: #374151;
+        color: #cbd5e1;
+        transform: translateX(5px);
     }
     ::selection {
-    background: #ffffff;  /* cool grey background */
-    color: #ffffff;       /* white text on selection */
+        background: #4b5563;
+        color: #ffffff;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -243,46 +344,54 @@ if not st.session_state.authenticated:
     
     with tab1:
         with st.container():
-            email = st.text_input("Email", key="signin_email")
-            password = st.text_input("Password", type="password", key="signin_password")
-            if st.button("Sign In"):
-                try:
-                    user = sign_in(email, password)
-                    if user:
-                        st.session_state.authenticated = True
-                        st.session_state.user_id = user["id"]
-                        st.session_state.username = user["username"]
-                        st.session_state.balance = float(user["balance"])
-                        st.session_state.last_portfolio_refresh = 0.0
-                        st.session_state.preferences = None
-                        st.success("Signed in successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Invalid email or password")
-                except Exception as e:
-                    st.error(f"Sign-in failed: {str(e)}")
+            #st.markdown("<div class='auth-container'><div class='auth-card'>", unsafe_allow_html=True)
+            st.markdown("<div class='auth-title'>Sign In</div>", unsafe_allow_html=True)
+            with st.form(key="signin_form"):
+                email = st.text_input("Email", placeholder="Enter your email", key="signin_email", label_visibility="visible")
+                password = st.text_input("Password", type="password", placeholder="Enter your password", key="signin_password", label_visibility="visible")
+                if st.form_submit_button("Sign In"):
+                    try:
+                        user = sign_in(email, password)
+                        if user:
+                            st.session_state.authenticated = True
+                            st.session_state.user_id = user["id"]
+                            st.session_state.username = user["username"]
+                            st.session_state.balance = float(user["balance"])
+                            st.session_state.last_portfolio_refresh = 0.0
+                            st.session_state.preferences = None
+                            st.success("Signed in successfully!")
+                            st.rerun()
+                        else:
+                            st.error("Invalid email or password")
+                    except Exception as e:
+                        st.error(f"Sign-in failed: {str(e)}")
+            st.markdown("</div>", unsafe_allow_html=True)
     
     with tab2:
         with st.container():
-            signup_email = st.text_input("Email", key="signup_email")
-            signup_password = st.text_input("Password", type="password", key="signup_password")
-            username = st.text_input("Username", key="signup_username")
-            if st.button("Sign Up"):
-                try:
-                    if sign_up(signup_email, signup_password, username):
-                        st.success("Account created! Please sign in.")
-                    else:
-                        st.error("Email already exists or invalid input")
-                except Exception as e:
-                    st.error(f"Sign-up failed: {str(e)}")
+            #st.markdown("<div class='auth-container'><div class='auth-card'>", unsafe_allow_html=True)
+            st.markdown("<div class='auth-title'>Sign Up</div>", unsafe_allow_html=True)
+            with st.form(key="signup_form"):
+                signup_email = st.text_input("Email", placeholder="Enter your email", key="signup_email", label_visibility="visible")
+                signup_password = st.text_input("Password", type="password", placeholder="Enter your password", key="signup_password", label_visibility="visible")
+                username = st.text_input("Username", placeholder="Choose a username", key="signup_username", label_visibility="visible")
+                if st.form_submit_button("Sign Up"):
+                    try:
+                        if sign_up(signup_email, signup_password, username):
+                            st.success("Account created! Please sign in.")
+                        else:
+                            st.error("Email already exists or invalid input")
+                    except Exception as e:
+                        st.error(f"Sign-up failed: {str(e)}")
+            st.markdown("</div>", unsafe_allow_html=True)
 else:
     # Main application UI
     st.markdown(f"<h1 class='header'>Welcome, {st.session_state.username}! 👋</h1>", unsafe_allow_html=True)
     
     # Custom navigation sidebar
     st.sidebar.markdown("<h2 style='color: #ffffff;'>Navigation</h2>", unsafe_allow_html=True)
-    nav_items = ["Get Recommendations", "Learn", "Trade", "Portfolio", "Leaderboard"]
-    selected_page = st.session_state.get("page", "Get Recommendations")
+    nav_items = ["Home", "Get Recommendations", "Learn", "Trade", "Portfolio", "Leaderboard"]
+    selected_page = st.session_state.get("page", "Home")
     
     for item in nav_items:
         if st.sidebar.button(item, key=f"nav_{item}", use_container_width=True):
@@ -302,7 +411,7 @@ else:
         </script>
     """, unsafe_allow_html=True)
 
-    page = st.session_state.get("page", "Get Recommendations")
+    page = st.session_state.get("page", "Home")
 
     # Sign out button and balance
     with st.sidebar:
@@ -325,7 +434,90 @@ else:
             st.error(f"Failed to display balance: {str(e)}")
 
     # Page content
-    if page == "Get Recommendations":
+    if page == "Home":
+        st.markdown("<h2 class='subheader'>📈 Stock Market Overview</h2>", unsafe_allow_html=True)
+        try:
+            logger.info("Fetching stock prices for Home page")
+            stock_data = fetch_stock_prices()
+            if not stock_data:
+                st.error("Failed to load stock prices.")
+            else:
+                # NewsAPI setup
+                news_cache = TTLCache(maxsize=100, ttl=3600)  # Cache news for 1 hour
+
+                def fetch_news(symbol):
+                    cache_key = f"news_{symbol}"
+                    if cache_key in news_cache:
+                        return news_cache[cache_key]
+                    try:
+                        url = f"https://newsapi.org/v2/everything?q={symbol}&apiKey={NEWSAPI_KEY}&language=en&pageSize=5"
+                        response = requests.get(url)
+                        response.raise_for_status()
+                        articles = response.json().get("articles", [])
+                        news_data = [
+                            {"title": article["title"], "summary": article["description"] or "No summary available", "url": article["url"]}
+                            for article in articles if article.get("title") and article.get("description")
+                        ]
+                        news_cache[cache_key] = news_data
+                        return news_data
+                    except Exception as e:
+                        logger.error(f"Failed to fetch news for {symbol}: {str(e)}")
+                        return []
+
+                cols = st.columns(2)  # Create two columns
+                for i, symbol in enumerate(STOCK_LIST):
+                    with cols[i % 2]:  # Alternate between columns
+                        data = stock_data.get(symbol, {"current_price": 0.0, "high_price": 0.0, "low_price": 0.0, "previous_close": 0.0})
+                        current_price = data["current_price"]
+                        high_price = data["high_price"]
+                        low_price = data["low_price"]
+                        previous_close = data["previous_close"]
+                        status = "profit" if current_price > previous_close else "loss" if current_price < previous_close else ""
+                        status_icon = "↑" if status == "profit" else "↓" if status == "loss" else ""
+                        news = fetch_news(symbol)
+                        st.markdown(f"""
+                            <div class='stock-card' style='width: 95%; margin: 5px; position: relative;'>
+                                <h3 style='color: #ffffff; margin: 0;'>{symbol}</h3>
+                                <div class='stock-price'>${current_price:.2f} <span class='{status}'>{status_icon}</span></div>
+                                <div class='stock-details'>High: ${high_price:.2f} | Low: ${low_price:.2f}</div>
+                                <a href='#' onclick='showNewsPopup(\"{symbol}\", {str(news).replace("'", '"')}); return false;' style='position: absolute; top: 10px; right: 10px; font-size: 24px; color: #ffffff; text-decoration: none;'>📰</a>
+                            </div>
+                        """, unsafe_allow_html=True)
+        except Exception as e:
+            logger.error(f"Failed to load stock prices for Home page: {str(e)}")
+            st.error(f"Failed to load stock prices: {str(e)}")
+
+        # JavaScript for news popup
+        st.markdown("""
+            <script>
+            function showNewsPopup(symbol, newsData) {
+                let popup = document.getElementById('newsPopup');
+                if (!popup) {
+                    popup = document.createElement('div');
+                    popup.id = 'newsPopup';
+                    popup.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2d2d2d; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 1000; max-height: 80vh; overflow-y: auto; color: #ffffff; width: 400px; display: none;';
+                    popup.innerHTML = '<h3 style="margin-top: 0;">News for ' + symbol + '</h3><button onclick="this.parentElement.style.display=\'none\'" style="position: absolute; top: 10px; right: 10px; background: #ef4444; color: #ffffff; border: none; border-radius: 4px; padding: 5px 10px;">X</button><div id="newsContent"></div>';
+                    document.body.appendChild(popup);
+                }
+                let content = document.getElementById('newsContent');
+                content.innerHTML = '';
+                newsData.forEach(article => {
+                    let div = document.createElement('div');
+                    div.style.marginBottom = '15px';
+                    div.innerHTML = `<a href="${article.url}" target="_blank" style="color: #22c55e; font-size: 18px; text-decoration: underline;">${article.title}</a><p style="margin: 5px 0; font-size: 14px;">${article.summary}</p>`;
+                    content.appendChild(div);
+                });
+                popup.style.display = 'block';
+            }
+            </script>
+            <style>
+            .stock-card a:hover {
+                color: #22c55e;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+    elif page == "Get Recommendations":
         st.markdown("<h2 class='subheader'>📊 Get Personalized Stock Recommendations</h2>", unsafe_allow_html=True)
         with st.form(key="preferences_form"):
             col1, col2 = st.columns(2)
@@ -423,15 +615,6 @@ else:
         st.markdown("<h2 class='subheader'>💹 Trade Stocks</h2>", unsafe_allow_html=True)
         mode = st.radio("Trading Mode", ["Manual", "Agent-Based"])
         if mode == "Manual":
-            try:
-                st.markdown("<h3 style='color: #ffffff;'>Stock Prices</h3>", unsafe_allow_html=True)
-                logger.info("Fetching stock prices for manual trading")
-                stock_data = fetch_stock_prices()
-                st.table(pd.DataFrame.from_dict(stock_data, orient="index", columns=["Price ($)"]))
-            except Exception as e:
-                logger.error(f"Failed to load stock prices: {str(e)}")
-                st.error(f"Failed to load stock prices: {str(e)}")
-
             with st.form(key="manual_trade_form"):
                 col1, col2 = st.columns(2)
                 with col1:
@@ -452,7 +635,8 @@ else:
                             st.error(f"Invalid stock symbol: {symbol}")
                             logger.error(f"Invalid stock symbol: {symbol}")
                         else:
-                            price = stock_data.get(symbol, 0.0)
+                            stock_data = fetch_stock_prices()
+                            price = stock_data.get(symbol, {"current_price": 0.0})["current_price"]
                             if price <= 0:
                                 st.error(f"No valid price available for {symbol}")
                                 logger.error(f"No valid price for {symbol}")
@@ -720,7 +904,7 @@ else:
                         try:
                             cache_key = f"price_{symbol}"
                             if cache_key in price_cache:
-                                current_price = price_cache[cache_key]
+                                current_price = price_cache[cache_key]["current_price"]
                             else:
                                 db_quote = get_stock_price_from_db(symbol)
                                 if db_quote:
@@ -729,8 +913,8 @@ else:
                                     for attempt in range(3):
                                         try:
                                             quote = finnhub_client.quote(symbol)
-                                            current_price = quote.get("c", stock_data.get(symbol, 0.0))
-                                            price_cache[cache_key] = current_price
+                                            current_price = quote.get("c", stock_data.get(symbol, {"current_price": 0.0})["current_price"])
+                                            price_cache[cache_key] = {"current_price": current_price}
                                             update_stock_price_in_db(symbol, quote)
                                             break
                                         except Exception as e:
@@ -743,10 +927,10 @@ else:
                                                     if db_quote:
                                                         current_price = db_quote["c"]
                                                     else:
-                                                        current_price = stock_data.get(symbol, 0.0)
+                                                        current_price = stock_data.get(symbol, {"current_price": 0.0})["current_price"]
                                                     break
                                             else:
-                                                current_price = stock_data.get(symbol, 0.0)
+                                                current_price = stock_data.get(symbol, {"current_price": 0.0})["current_price"]
                                                 break
                             
                             avg_buy_price = data["total_cost"] / data["quantity"] if data["quantity"] > 0 else 0
@@ -765,7 +949,7 @@ else:
                                 "Symbol": symbol,
                                 "Quantity": data["quantity"],
                                 "Avg Buy Price ($)": data["total_cost"] / data["quantity"] if data["quantity"] > 0 else 0,
-                                "Current Price ($)": stock_data.get(symbol, 0.0),
+                                "Current Price ($)": stock_data.get(symbol, {"current_price": 0.0})["current_price"],
                                 "Unrealized Profit ($)": 0.0,
                                 "Realized Profit ($)": data["realized_profit"]
                             })
@@ -788,7 +972,12 @@ else:
         try:
             logger.info("Fetching leaderboard")
             leaderboard = get_leaderboard()
-            st.table(pd.DataFrame(leaderboard, columns=["Username", "Balance", "Badges"]))
+            if leaderboard:
+                top_user = leaderboard[0]
+                st.markdown(f"<div class='top-user'>Top Investor: {top_user['username']} with {top_user['balance']}</div>", unsafe_allow_html=True)
+                st.table(pd.DataFrame(leaderboard, columns=["Username", "balance"]).rename(columns={"balance": "Masked Balance"}))
+            else:
+                st.info("No leaderboard data available.")
         except Exception as e:
             logger.error(f"Failed to load leaderboard: {str(e)}")
             st.error(f"Failed to load leaderboard: {str(e)}")

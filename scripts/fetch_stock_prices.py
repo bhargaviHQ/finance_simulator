@@ -77,7 +77,6 @@ def get_stock_price_from_db(symbol: str) -> dict:
         cursor.close()
         conn.close()
         if result:
-            # Ensure last_updated is offset-aware
             last_updated = result["last_updated"]
             if last_updated.tzinfo is None:
                 last_updated = last_updated.replace(tzinfo=timezone.utc)
@@ -141,29 +140,35 @@ def fetch_stock_prices():
     for symbol in STOCK_LIST:
         try:
             cache_key = f"price_{symbol}"
-            # Check cache first
             if cache_key in price_cache:
-                logger.debug(f"Using cached price for {symbol}: ${price_cache[cache_key]:.2f}")
+                logger.debug(f"Using cached price for {symbol}: ${price_cache[cache_key]['current_price']:.2f}")
                 stock_data[symbol] = price_cache[cache_key]
                 continue
 
-            # Check database for recent price
             db_quote = get_stock_price_from_db(symbol)
             if db_quote:
-                stock_data[symbol] = db_quote["c"]
-                price_cache[cache_key] = db_quote["c"]
+                stock_data[symbol] = {
+                    "current_price": db_quote["c"],
+                    "high_price": db_quote["h"],
+                    "low_price": db_quote["l"],
+                    "previous_close": db_quote["pc"]
+                }
+                price_cache[cache_key] = stock_data[symbol]
                 continue
 
-            # Fetch from Finnhub with retry logic
             for attempt in range(5):
                 try:
                     quote = finnhub_client.quote(symbol)
-                    # Validate price data
                     if not isinstance(quote.get("c"), (int, float)) or quote["c"] <= 0:
                         logger.warning(f"Invalid price data for {symbol}: {quote}")
                         quote = {"o": 0.0, "c": 0.0, "h": 0.0, "l": 0.0, "pc": 0.0}
-                    stock_data[symbol] = float(quote["c"])
-                    price_cache[cache_key] = float(quote["c"])
+                    stock_data[symbol] = {
+                        "current_price": float(quote["c"]),
+                        "high_price": float(quote["h"]),
+                        "low_price": float(quote["l"]),
+                        "previous_close": float(quote["pc"])
+                    }
+                    price_cache[cache_key] = stock_data[symbol]
                     update_stock_price_in_db(symbol, quote)
                     logger.info(f"Fetched and stored price for {symbol}: ${quote['c']:.2f}")
                     break
@@ -176,23 +181,43 @@ def fetch_stock_prices():
                             logger.error(f"Rate limit exceeded for {symbol}, falling back to DB")
                             db_quote = get_stock_price_from_db(symbol)
                             if db_quote:
-                                stock_data[symbol] = db_quote["c"]
-                                price_cache[cache_key] = db_quote["c"]
+                                stock_data[symbol] = {
+                                    "current_price": db_quote["c"],
+                                    "high_price": db_quote["h"],
+                                    "low_price": db_quote["l"],
+                                    "previous_close": db_quote["pc"]
+                                }
+                                price_cache[cache_key] = stock_data[symbol]
                                 logger.info(f"Used DB price for {symbol}: ${db_quote['c']:.2f}")
                             else:
                                 logger.error(f"No DB price for {symbol}, using default 0.0")
-                                stock_data[symbol] = 0.0
-                                price_cache[cache_key] = 0.0
+                                stock_data[symbol] = {
+                                    "current_price": 0.0,
+                                    "high_price": 0.0,
+                                    "low_price": 0.0,
+                                    "previous_close": 0.0
+                                }
+                                price_cache[cache_key] = stock_data[symbol]
                             break
                     else:
                         logger.error(f"Failed to fetch Finnhub price for {symbol}: {str(e)}")
-                        stock_data[symbol] = 0.0
-                        price_cache[cache_key] = 0.0
+                        stock_data[symbol] = {
+                            "current_price": 0.0,
+                            "high_price": 0.0,
+                            "low_price": 0.0,
+                            "previous_close": 0.0
+                        }
+                        price_cache[cache_key] = stock_data[symbol]
                         break
         except Exception as e:
             logger.error(f"Unexpected error processing {symbol}: {str(e)}")
-            stock_data[symbol] = 0.0
-            price_cache[cache_key] = 0.0
+            stock_data[symbol] = {
+                "current_price": 0.0,
+                "high_price": 0.0,
+                "low_price": 0.0,
+                "previous_close": 0.0
+            }
+            price_cache[cache_key] = stock_data[symbol]
 
     return stock_data
 
@@ -207,8 +232,8 @@ def main():
             return
         logger.info("Stock price fetch completed")
         print("Fetched stock prices:")
-        for symbol, price in stock_data.items():
-            print(f"{symbol}: ${price:.2f}")
+        for symbol, data in stock_data.items():
+            print(f"{symbol}: ${data['current_price']:.2f}")
     except Exception as e:
         logger.error(f"Stock price fetch failed: {str(e)}")
         print(f"Error: {str(e)}")

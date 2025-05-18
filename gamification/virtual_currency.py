@@ -3,32 +3,6 @@ from utils.logger import logger
 import mysql.connector
 from datetime import datetime
 
-def ensure_badges_column():
-    """Ensure the badges column exists in the users table."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT COLUMN_NAME 
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'badges' AND TABLE_SCHEMA = 'stock_data'
-        """)
-        if not cursor.fetchone():
-            logger.info("Adding badges column to users table")
-            cursor.execute("ALTER TABLE users ADD COLUMN badges VARCHAR(255) DEFAULT 'None'")
-            conn.commit()
-            logger.info("Badges column added successfully")
-        else:
-            logger.debug("Badges column already exists")
-        cursor.close()
-        conn.close()
-    except mysql.connector.Error as e:
-        logger.error(f"Failed to ensure badges column: {str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error ensuring badges column: {str(e)}")
-        raise
-
 def get_balance(user_id: str) -> float:
     try:
         conn = get_db_connection()
@@ -73,9 +47,6 @@ def add_trade(user_id: str, trade: dict) -> bool:
             logger.error(f"Invalid timestamp format: {trade['timestamp']}")
             return False
 
-        # Ensure badges column exists
-        ensure_badges_column()
-
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -84,15 +55,6 @@ def add_trade(user_id: str, trade: dict) -> bool:
         if trade["trade_type"] == "buy" and trade["amount"] > current_balance:
             logger.error(f"Insufficient balance for user {user_id}: {trade['amount']} > {current_balance}")
             return False
-
-        # Initialize badges if NULL
-        cursor.execute("SELECT badges FROM users WHERE id = %s", (user_id,))
-        result = cursor.fetchone()
-        current_badges = result[0] if result and result[0] is not None else 'None'
-        if current_badges == 'None':
-            new_badges = 'First Trade'
-            cursor.execute("UPDATE users SET badges = %s WHERE id = %s", (new_badges, user_id))
-            logger.info(f"Initialized badges for user {user_id}: {new_badges}")
 
         # Insert trade
         cursor.execute("""
@@ -118,7 +80,7 @@ def add_trade(user_id: str, trade: dict) -> bool:
         """, (balance_change, user_id))
 
         conn.commit()
-        logger.info(f"Trade added for user {user_id}: {trade['symbol']}, ${trade['amount']}, Type: {trade['trade_type']}, Quantity: {trade['quantity']}, Badges: {new_badges if current_badges == 'None' else current_badges}")
+        logger.info(f"Trade added for user {user_id}: {trade['symbol']}, ${trade['amount']}, Type: {trade['trade_type']}, Quantity: {trade['quantity']}")
         return True
     except mysql.connector.Error as e:
         logger.error(f"Failed to add trade for user {user_id}: SQL Error: {str(e)}, Trade: {trade}")

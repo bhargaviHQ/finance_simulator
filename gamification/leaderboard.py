@@ -2,37 +2,23 @@ from data.mysql_db import get_db_connection
 from utils.logger import logger
 import mysql.connector
 
-def ensure_badges_column():
-    """Ensure the badges column exists in the users table."""
+def mask_balance(balance: float) -> str:
+    """Mask the balance to obscure the exact amount (e.g., $123,456.78 -> $12X,XXX.XX)."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT COLUMN_NAME 
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'badges' AND TABLE_SCHEMA = 'stock_data'
-        """)
-        if not cursor.fetchone():
-            logger.info("Adding badges column to users table")
-            cursor.execute("ALTER TABLE users ADD COLUMN badges VARCHAR(255) DEFAULT 'None'")
-            conn.commit()
-            logger.info("Badges column added successfully")
-        else:
-            logger.debug("Badges column already exists")
-        cursor.close()
-        conn.close()
-    except mysql.connector.Error as e:
-        logger.error(f"Failed to ensure badges column: {str(e)}")
-        raise
+        balance_str = f"{balance:.2f}"
+        if len(balance_str) < 3:
+            return "$XX,XXX.XX"
+        integer_part, decimal_part = balance_str.split(".")
+        if len(integer_part) <= 2:
+            return f"${integer_part}X,XXX.{decimal_part}"
+        masked = f"${integer_part[:2]}X,XXX.{decimal_part}"
+        return masked
     except Exception as e:
-        logger.error(f"Unexpected error ensuring badges column: {str(e)}")
-        raise
+        logger.error(f"Failed to mask balance {balance}: {str(e)}")
+        return "$XX,XXX.XX"
 
 def update_leaderboard(user_id: str, username: str, balance: float):
     try:
-        # Ensure badges column exists
-        ensure_badges_column()
-
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
@@ -60,12 +46,15 @@ def get_leaderboard():
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT username, balance, COALESCE(badges, 'None') AS badges 
+            SELECT username, balance
             FROM users 
             ORDER BY balance DESC 
             LIMIT 10
         """)
         leaderboard = cursor.fetchall()
+        # Mask balances in the leaderboard
+        for entry in leaderboard:
+            entry["balance"] = mask_balance(entry["balance"])
         cursor.close()
         conn.close()
         logger.info("Leaderboard retrieved")
