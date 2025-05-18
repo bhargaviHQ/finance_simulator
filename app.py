@@ -3,21 +3,19 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-import json
-import base64
+import pandas as pd
 import finnhub
 from cachetools import TTLCache
 import time
-import pandas as pd
+import mysql.connector
 from scripts.fetch_stock_prices import fetch_stock_prices
 from utils.config import FINNHUB_API_KEY
 from utils.logger import logger
-from agents import PreferenceParserAgent, EducatorAgent, StrategistAgent, MarketAnalystAgent, ExecutorAgent, MonitorGuardrailAgent, run_workflow
+from agents import EducatorAgent, StrategistAgent, MarketAnalystAgent, ExecutorAgent, MonitorGuardrailAgent, run_workflow
 from auth.auth import sign_up, sign_in, get_user
 from gamification.leaderboard import update_leaderboard, get_leaderboard
 from gamification.virtual_currency import get_balance, add_trade, get_portfolio
-from data.mysql_db import get_db_connection, save_user_preferences, get_user_preferences, get_user_trades, get_preference_history
-import mysql.connector
+from data.mysql_db import get_db_connection
 
 project_root = str(Path(__file__).parent)
 if project_root not in sys.path:
@@ -97,22 +95,7 @@ if "authenticated" not in st.session_state:
     st.session_state.username = None
     st.session_state.balance = 100000.0
     st.session_state.last_portfolio_refresh = 0.0
-
-def encode_preferences(preferences):
-    try:
-        prefs_json = json.dumps(preferences)
-        return base64.urlsafe_b64encode(prefs_json.encode('utf-8')).decode('utf-8')
-    except Exception as e:
-        logger.error(f"Failed to encode preferences: {str(e)}")
-        return ""
-
-def decode_preferences(encoded):
-    try:
-        prefs_json = base64.urlsafe_b64decode(encoded.encode('utf-8')).decode('utf-8')
-        return json.loads(prefs_json)
-    except Exception as e:
-        logger.error(f"Failed to decode preferences: {str(e)}")
-        return None
+    st.session_state.preferences = None
 
 if not st.session_state.authenticated:
     st.title("Finance Simulator - Sign In / Sign Up")
@@ -130,6 +113,7 @@ if not st.session_state.authenticated:
                     st.session_state.username = user["username"]
                     st.session_state.balance = float(user["balance"])
                     st.session_state.last_portfolio_refresh = 0.0
+                    st.session_state.preferences = None
                     st.success("Signed in successfully!")
                     st.rerun()
                 else:
@@ -158,41 +142,61 @@ else:
             st.session_state.username = None
             st.session_state.balance = 100000.0
             st.session_state.last_portfolio_refresh = 0.0
+            st.session_state.preferences = None
             st.rerun()
         except Exception as e:
             st.error(f"Sign-out failed: {str(e)}")
 
     st.sidebar.header("Navigation")
-    page = st.sidebar.radio("Go to", ["Preferences", "Learn", "Recommendations", "Trade", "Portfolio", "Leaderboard"])
+    page = st.sidebar.radio("Go to", ["Get Recommendations", "Learn", "Trade", "Portfolio", "Leaderboard"])
 
-    if page == "Preferences":
-        st.header("Set Your Investment Preferences")
-        query_params = st.query_params
-        default_input = ""
-        if "prefs" in query_params:
-            prefs = decode_preferences(query_params["prefs"])
-            if prefs:
-                default_input = (
-                    f"Risk Appetite: {prefs['risk_appetite']}, "
-                    f"Goals: {prefs['investment_goals']}, "
-                    f"Time Horizon: {prefs['time_horizon']}, "
-                    f"Amount: ${prefs['investment_amount']}, "
-                    f"Style: {prefs['investment_style']}"
-                )
-        
-        preference_input = st.text_area(
-            "Describe your preferences (e.g., risk level, investment goals, time horizon, amount, style)",
-            value=default_input,
-            placeholder="Example: I'm risk-averse, want to save for retirement, have $5000 to invest, prefer index funds."
-        )
-        if st.button("Submit Preferences"):
-            try:
-                logger.info(f"Parsing preferences: {preference_input}")
-                parser = PreferenceParserAgent()
-                preferences = parser.parse_preferences(preference_input)
-                save_user_preferences(st.session_state.user_id, preferences)
-                encoded_prefs = encode_preferences(preferences)
-                st.query_params["prefs"] = encoded_prefs
+    if page == "Get Recommendations":
+        st.header("Get Personalized Stock Recommendations")
+        with st.form(key="preferences_form"):
+            risk_appetite = st.selectbox(
+                "Risk Appetite",
+                ["low", "medium", "high"],
+                help="Select 'low' for safe/secure/cautious, 'high' for aggressive/risky, or 'medium' otherwise."
+            )
+            investment_goals = st.selectbox(
+                "Investment Goals",
+                ["retirement", "growth", "income"],
+                help="Select 'retirement' for long-term savings, 'growth' for wealth/expansion, 'income' for dividends/passive."
+            )
+            time_horizon = st.selectbox(
+                "Time Horizon",
+                ["short", "medium", "long"],
+                help="Select 'short' for 1-3 years, 'medium' for 3-7 years, 'long' for 7+ years."
+            )
+            investment_amount = st.number_input(
+                "Investment Amount ($)",
+                min_value=0.0,
+                value=10000.0,
+                step=100.0,
+                help="Enter the amount you wish to invest (e.g., 5000.0)."
+            )
+            investment_style = st.selectbox(
+                "Investment Style",
+                ["value", "growth", "index"],
+                help="Select 'index' for passive investing, or choose 'value' or 'growth'."
+            )
+            submit_button = st.form_submit_button("Get Recommendations")
+
+        if submit_button:
+            if investment_amount <= 0:
+                st.error("Investment amount must be greater than zero.")
+                logger.error(f"Invalid investment amount: {investment_amount}")
+            else:
+                preferences = {
+                    "risk_appetite": risk_appetite,
+                    "investment_goals": investment_goals,
+                    "time_horizon": time_horizon,
+                    "investment_amount": float(investment_amount),
+                    "investment_style": investment_style
+                }
+                st.session_state.preferences = preferences
+                logger.info(f"Submitted preferences: {preferences}")
+                
                 st.subheader("Your Investment Preferences")
                 prefs_display = {
                     "Risk Appetite": preferences["risk_appetite"],
@@ -202,32 +206,27 @@ else:
                     "Investment Style": preferences["investment_style"]
                 }
                 st.table(pd.DataFrame([prefs_display]))
-                st.success(f"Preferences saved! URL updated with preferences: {encoded_prefs}")
-            except Exception as e:
-                logger.error(f"Failed to save preferences: {str(e)}")
-                st.error(f"Failed to save preferences: {str(e)}")
-        
-        st.subheader("Preference History")
-        try:
-            history = get_preference_history(st.session_state.user_id)
-            if history:
-                history_data = [
-                    {
-                        "Timestamp": entry["timestamp"],
-                        "Risk Appetite": entry["preferences"]["risk_appetite"],
-                        "Goals": entry["preferences"]["investment_goals"],
-                        "Time Horizon": entry["preferences"]["time_horizon"],
-                        "Amount": f"${entry['preferences']['investment_amount']:.2f}",
-                        "Style": entry["preferences"]["investment_style"]
-                    }
-                    for entry in history
-                ]
-                st.table(pd.DataFrame(history_data))
-            else:
-                st.info("No preference history yet.")
-        except Exception as e:
-            logger.error(f"Failed to load preference history: {str(e)}")
-            st.error(f"Failed to load preference history: {str(e)}")
+                
+                st.info("Fetching stock data, financials, and news sentiment...")
+                logger.info("Starting recommendation workflow")
+                with st.spinner("Generating recommendations..."):
+                    result = run_workflow(preferences, st.session_state.user_id)
+                if result["recommendations"]:
+                    st.success("Generated personalized recommendations!")
+                    logger.info(f"Generated recommendations: {result['recommendations']}")
+                    st.subheader("Your Stock Recommendations")
+                    for rec in result["recommendations"]:
+                        with st.expander(f"{rec['Symbol']} - {rec['Company']}"):
+                            st.markdown(f"**Action**: {rec['Action']}")
+                            st.markdown(f"**Quantity**: {rec['Quantity']} shares")
+                            st.markdown(f"**Reason**: {rec['Reason']}")
+                            st.markdown(f"**Caution**: {rec['Caution']}")
+                            st.markdown(f"**News Sentiment**: {rec['NewsSentiment']}")
+                            st.markdown(f"**Score**: {rec['Score']}")
+                else:
+                    logger.warning("No recommendations generated")
+                    st.error("No recommendations generated. Possible issues: invalid data, API errors, or rate limits.")
+                    st.info("Check finance_simulator/logs/app.log for details.")
 
     elif page == "Learn":
         st.header("Learn Investment Strategies")
@@ -241,46 +240,6 @@ else:
         except Exception as e:
             logger.error(f"Failed to load educational content: {str(e)}")
             st.error(f"Failed to load educational content: {str(e)}")
-
-    elif page == "Recommendations":
-        st.header("Personalized Stock Recommendations")
-        try:
-            preferences = get_user_preferences(st.session_state.user_id)
-            if preferences:
-                if st.button("Get Recommendations"):
-                    try:
-                        st.info("Step 1: MarketAnalystAgent is fetching stock data, financials, and news sentiment...")
-                        logger.info("Starting recommendation workflow")
-                        with st.spinner("Generating recommendations..."):
-                            result = run_workflow(preferences, st.session_state.user_id)
-                        if result["recommendations"]:
-                            st.success("Step 2: StrategistAgent generated detailed recommendations!")
-                            logger.info(f"Generated recommendations: {result['recommendations']}")
-                            st.subheader("Your Personalized Stock Recommendations")
-                            for rec in result["recommendations"]:
-                                with st.expander(f"{rec['Symbol']} - {rec['Company']}"):
-                                    st.markdown(f"**Action**: {rec['Action']}")
-                                    st.markdown(f"**Quantity**: {rec['Quantity']} shares")
-                                    st.markdown(f"**Reason**: {rec['Reason']}")
-                                    st.markdown(f"**Caution**: {rec['Caution']}")
-                                    st.markdown(f"**News Sentiment**: {rec['NewsSentiment']}")
-                                    st.markdown(f"**Score**: {rec['Score']}")
-                        else:
-                            logger.warning("No recommendations generated")
-                            st.error("No recommendations generated. Possible issues: invalid data, API errors, or rate limits.")
-                            st.warning("Rate limit may have been reached. Please wait a few minutes and try again.")
-                            st.info("Check finance_simulator/logs/app.log for details.")
-                    except Exception as e:
-                        logger.error(f"Recommendation workflow failed: {str(e)}")
-                        st.error(f"Failed to generate recommendations: {str(e)}")
-                        if "429" in str(e):
-                            st.warning("API rate limit exceeded. Please wait a few minutes and try again.")
-                        st.info("Check finance_simulator/logs/app.log for details.")
-            else:
-                st.warning("Please set your preferences first.")
-        except Exception as e:
-            logger.error(f"Failed to load preferences: {str(e)}")
-            st.error(f"Failed to load preferences: {str(e)}")
 
     elif page == "Trade":
         st.header("Trade Stocks")
@@ -307,6 +266,9 @@ else:
                     elif amount > st.session_state.balance and trade_type == "Buy":
                         st.error("Insufficient balance")
                         logger.error(f"Insufficient balance: {amount} > {st.session_state.balance}")
+                    elif symbol not in STOCK_LIST:
+                        st.error(f"Invalid stock symbol: {symbol}")
+                        logger.error(f"Invalid stock symbol: {symbol}")
                     else:
                         price = stock_data.get(symbol, 0.0)
                         if price <= 0:
@@ -319,47 +281,63 @@ else:
                                 "symbol": symbol,
                                 "amount": float(amount),
                                 "price": float(price),
-                                "trade_type": trade_type.lower(),
+                                "type": trade_type.lower(),
                                 "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
                                 "user_id": st.session_state.user_id,
                                 "quantity": float(quantity)
                             }
                             logger.debug(f"Trade data: {trade}")
-                            try:
-                                if add_trade(st.session_state.user_id, trade):
-                                    if trade_type == "Buy":
-                                        st.session_state.balance = float(st.session_state.balance - amount)
+                            for attempt in range(3):
+                                try:
+                                    if add_trade(st.session_state.user_id, trade):
+                                        if trade_type == "Buy":
+                                            st.session_state.balance = float(st.session_state.balance - amount)
+                                        else:
+                                            st.session_state.balance = float(st.session_state.balance + amount)
+                                        update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
+                                        st.success(f"Trade executed: {trade_type} ${amount:.2f} of {symbol} at ${price:.2f} ({quantity:.2f} shares)")
+                                        logger.info(f"Trade saved: {symbol}, ${amount}, {trade_type}")
+                                        break
                                     else:
-                                        st.session_state.balance = float(st.session_state.balance + amount)
-                                    update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
-                                    st.success(f"Trade executed: {trade_type} ${amount:.2f} of {symbol} at ${price:.2f} ({quantity:.2f} shares)")
-                                    logger.info(f"Trade saved: {symbol}, ${amount}, {trade_type}")
-                                else:
-                                    st.error("Failed to save trade")
-                                    logger.error(f"Failed to save trade for {symbol}: add_trade returned False")
-                            except mysql.connector.errors.IntegrityError as e:
-                                st.error(f"Failed to save trade: Database integrity error (e.g., duplicate trade ID or invalid user)")
-                                logger.error(f"IntegrityError in add_trade: {str(e)}")
-                            except mysql.connector.errors.DatabaseError as e:
-                                st.error(f"Failed to save trade: Database error")
-                                logger.error(f"DatabaseError in add_trade: {str(e)}")
-                            except Exception as e:
-                                st.error(f"Failed to save trade: Unexpected error")
-                                logger.error(f"Unexpected error in add_trade: {str(e)}")
+                                        st.error("Failed to save trade")
+                                        logger.error(f"Failed to save trade for {symbol}: add_trade returned False")
+                                        break
+                                except mysql.connector.errors.IntegrityError as e:
+                                    logger.error(f"IntegrityError in add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                    if attempt < 2:
+                                        logger.warning(f"Retrying trade save for {symbol}...")
+                                        time.sleep(1)
+                                        continue
+                                    st.error(f"Failed to save trade: Database integrity error (e.g., duplicate trade ID)")
+                                    break
+                                except mysql.connector.errors.DatabaseError as e:
+                                    logger.error(f"DatabaseError in add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                    if attempt < 2:
+                                        logger.warning(f"Retrying trade save for {symbol}...")
+                                        time.sleep(1)
+                                        continue
+                                    st.error(f"Failed to save trade: Database error")
+                                    break
+                                except Exception as e:
+                                    logger.error(f"Unexpected error in add_trade (attempt {attempt + 1}): {str(e)}")
+                                    st.error(f"Failed to save trade: Unexpected error")
+                                    break
                 except Exception as e:
                     logger.error(f"Failed to execute trade: {str(e)}")
                     st.error(f"Failed to execute trade: {str(e)}")
         else:
             if st.button("Execute Agent-Based Trade"):
                 try:
-                    preferences = get_user_preferences(st.session_state.user_id)
-                    if preferences:
-                        logger.info("Starting agent-based trade workflow")
-                        st.info("Step 1: MarketAnalystAgent is fetching stock data, financials, and news sentiment...")
+                    preferences = st.session_state.get("preferences", None)
+                    if not preferences:
+                        st.warning("Please submit preferences in 'Get Recommendations' first.")
+                    else:
+                        logger.info(f"Starting agent-based trade with preferences: {preferences}")
+                        st.info("Fetching stock data, financials, and news sentiment...")
                         with st.spinner("Generating trade recommendation..."):
                             result = run_workflow(preferences, st.session_state.user_id)
                         if result["recommendations"]:
-                            st.success("Step 2: StrategistAgent generated recommendations!")
+                            st.success("Generated trade recommendation!")
                             logger.info(f"Agent-based trade recommendations: {result['recommendations']}")
                             executor = ExecutorAgent()
                             recommendation = result["recommendations"][0]
@@ -383,36 +361,51 @@ else:
                                                 raise Exception("No price available")
                                     else:
                                         raise
-                            trade["id"] = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+                            trade["id"] = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
                             trade["timestamp"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
                             trade["amount"] = trade["price"] * trade["quantity"]
-                            if trade["amount"] <= st.session_state.balance or trade["trade_type"] == "sell":
-                                try:
-                                    if add_trade(st.session_state.user_id, trade):
-                                        if trade["trade_type"] == "buy":
-                                            st.session_state.balance = float(st.session_state.balance - trade["amount"])
+                            if trade["amount"] <= st.session_state.balance or trade["type"] == "sell":
+                                for attempt in range(3):
+                                    try:
+                                        if add_trade(st.session_state.user_id, trade):
+                                            if trade["type"] == "buy":
+                                                st.session_state.balance = float(st.session_state.balance - trade["amount"])
+                                            else:
+                                                st.session_state.balance = float(st.session_state.balance + trade["amount"])
+                                            update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
+                                            st.success(f"Agent executed trade: {trade['type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
+                                            logger.info(f"Agent trade saved: {trade['symbol']}, ${trade['amount']}, {trade['type']}")
+                                            break
                                         else:
-                                            st.session_state.balance = float(st.session_state.balance + trade["amount"])
-                                        update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
-                                        st.success(f"Agent executed trade: {trade['trade_type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
-                                    else:
-                                        st.error("Failed to save trade")
-                                        logger.error(f"Failed to save agent-based trade for {trade['symbol']}: add_trade returned False")
-                                except mysql.connector.errors.IntegrityError as e:
-                                    st.error(f"Failed to save trade: Database integrity error")
-                                    logger.error(f"IntegrityError in agent-based add_trade: {str(e)}")
-                                except mysql.connector.errors.DatabaseError as e:
-                                    st.error(f"Failed to save trade: Database error")
-                                    logger.error(f"DatabaseError in agent-based add_trade: {str(e)}")
+                                            st.error("Failed to save trade")
+                                            logger.error(f"Failed to save agent-based trade for {trade['symbol']}: add_trade returned False")
+                                            break
+                                    except mysql.connector.errors.IntegrityError as e:
+                                        logger.error(f"IntegrityError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                        if attempt < 2:
+                                            logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
+                                            time.sleep(1)
+                                            continue
+                                        st.error(f"Failed to save trade: Database integrity error")
+                                        break
+                                    except mysql.connector.errors.DatabaseError as e:
+                                        logger.error(f"DatabaseError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                        if attempt < 2:
+                                            logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
+                                            time.sleep(1)
+                                            continue
+                                        st.error(f"Failed to save trade: Database error")
+                                        break
+                                    except Exception as e:
+                                        logger.error(f"Unexpected error in agent-based add_trade (attempt {attempt + 1}): {str(e)}")
+                                        st.error(f"Failed to save trade: Unexpected error")
+                                        break
                             else:
                                 st.error("Insufficient balance")
                         else:
                             logger.warning("No recommendations available for trading")
                             st.error("No recommendations available for trading. Possible issues: API errors or rate limits.")
-                            st.warning("Rate limit may have been reached. Please wait a few minutes and try again.")
                             st.info("Check finance_simulator/logs/app.log for details.")
-                    else:
-                        st.warning("Please set your preferences first.")
                 except Exception as e:
                     logger.error(f"Agent-based trade failed: {str(e)}")
                     st.error(f"Agent-based trade failed: {str(e)}")
@@ -462,7 +455,7 @@ else:
                         transaction_history[symbol] = []
                     
                     try:
-                        if trade["trade_type"] == "buy":
+                        if trade["type"] == "buy":
                             holdings[symbol]["quantity"] += quantity
                             holdings[symbol]["total_cost"] += trade["amount"]
                             holdings[symbol]["buy_trades"] += 1
@@ -482,7 +475,7 @@ else:
                         continue
                     
                     transaction_history[symbol].append({
-                        "Type": trade["trade_type"].capitalize(),
+                        "Type": trade["type"].capitalize(),
                         "Quantity": quantity,
                         "Price ($)": trade["price"],
                         "Amount ($)": trade["amount"],
@@ -501,7 +494,6 @@ else:
                                 db_quote = get_stock_price_from_db(symbol)
                                 if db_quote:
                                     current_price = db_quote["c"]
-                                    price_cache[cache_key] = current_price
                                 else:
                                     for attempt in range(3):
                                         try:
@@ -519,7 +511,6 @@ else:
                                                     db_quote = get_stock_price_from_db(symbol)
                                                     if db_quote:
                                                         current_price = db_quote["c"]
-                                                        price_cache[cache_key] = current_price
                                                     else:
                                                         current_price = stock_data.get(symbol, 0.0)
                                                     break
@@ -566,14 +557,7 @@ else:
         try:
             logger.info("Fetching leaderboard")
             leaderboard = get_leaderboard()
-            df = pd.DataFrame(leaderboard)
-            df.rename(columns={
-                'username': 'Username',
-                'balance': 'Balance',
-                'badges': 'Badges'
-            }, inplace=True)
-            df['Badges'] = df['Badges'].fillna('None')
-            st.table(df)
+            st.table(pd.DataFrame(leaderboard, columns=["Username", "Balance", "Badges"]))
         except Exception as e:
             logger.error(f"Failed to load leaderboard: {str(e)}")
             st.error(f"Failed to load leaderboard: {str(e)}")
