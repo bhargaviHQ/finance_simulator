@@ -10,7 +10,7 @@ from cachetools import TTLCache
 import time
 import mysql.connector
 from scripts.fetch_stock_prices import fetch_stock_prices
-from utils.config import FINNHUB_API_KEY, GNEWS_API_KEY
+# from utils.config import FINNHUB_API_KEY, GNEWS_API_KEY
 from utils.logger import logger
 from agents import EducatorAgent, StrategistAgent, MarketAnalystAgent, ExecutorAgent, MonitorGuardrailAgent, run_workflow
 from auth.auth import sign_up, sign_in, get_user
@@ -27,6 +27,11 @@ if project_root not in sys.path:
 
 # Page configuration
 st.set_page_config(page_title="📈 Finance Simulator", layout="wide", initial_sidebar_state="expanded")
+
+#Fetching API Keys
+NEWSAPI_KEY = st.secrets["api"]["NEWSAPI_KEY"]
+FINNHUB_API_KEY = st.secrets["api"]["FINNHUB_API_KEY"]
+GNEWS_API_KEY = st.secrets["api"]["GNEWS_API_KEY"]
 
 # Custom CSS for dark theme
 st.markdown("""
