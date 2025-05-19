@@ -6,10 +6,10 @@ import tempfile
 import requests
 
 #API Configs
-GROQ_API_KEY = st.secrets["api"]["GROQ_API_KEY"]
-NEWSAPI_KEY = st.secrets["api"]["NEWSAPI_KEY"]
-FINNHUB_API_KEY = st.secrets["api"]["FINNHUB_API_KEY"]
-GNEWS_API_KEY = st.secrets["api"]["GNEWS_API_KEY"]
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+NEWSAPI_KEY = st.secrets["NEWSAPI_KEY"]
+FINNHUB_API_KEY = st.secrets["FINNHUB_API_KEY"]
+GNEWS_API_KEY = st.secrets["GNEWS_API_KEY"]
 
 #Database Configs
 AZURE_DATABASE=st.secrets["database"]["AZURE_DATABASE"]

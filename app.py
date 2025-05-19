@@ -28,10 +28,10 @@ if project_root not in sys.path:
 # Page configuration
 st.set_page_config(page_title="📈 Finance Simulator", layout="wide", initial_sidebar_state="expanded")
 
-#Fetching API Keys
-NEWSAPI_KEY = st.secrets["api"]["NEWSAPI_KEY"]
-FINNHUB_API_KEY = st.secrets["api"]["FINNHUB_API_KEY"]
-GNEWS_API_KEY = st.secrets["api"]["GNEWS_API_KEY"]
+# Fetching API Keys
+NEWSAPI_KEY = st.secrets["NEWSAPI_KEY"]
+FINNHUB_API_KEY = st.secrets["FINNHUB_API_KEY"]
+GNEWS_API_KEY = st.secrets["GNEWS_API_KEY"]
 
 # Custom CSS for dark theme
 st.markdown("""
@@ -379,7 +379,6 @@ if not st.session_state.authenticated:
     
     with tab1:
         with st.container():
-            #st.markdown("<div class='auth-container'><div class='auth-card'>", unsafe_allow_html=True)
             st.markdown("<div class='auth-title'>Sign In</div>", unsafe_allow_html=True)
             with st.form(key="signin_form"):
                 email = st.text_input("Email", placeholder="Enter your email", key="signin_email", label_visibility="visible")
@@ -404,7 +403,6 @@ if not st.session_state.authenticated:
     
     with tab2:
         with st.container():
-            #st.markdown("<div class='auth-container'><div class='auth-card'>", unsafe_allow_html=True)
             st.markdown("<div class='auth-title'>Sign Up</div>", unsafe_allow_html=True)
             with st.form(key="signup_form"):
                 signup_email = st.text_input("Email", placeholder="Enter your email", key="signup_email", label_visibility="visible")
@@ -429,642 +427,642 @@ else:
         
         # Custom navigation sidebar
         st.sidebar.markdown("<h2 style='color: #ffffff;'>Navigation</h2>", unsafe_allow_html=True)
-    nav_items = ["Home", "Get Recommendations", "Trade", "Portfolio", "Leaderboard"]
-    selected_page = st.session_state.get("page", "Home")
+        nav_items = ["Home", "Get Recommendations", "Trade", "Portfolio", "Leaderboard"]
+        selected_page = st.session_state.get("page", "Home")
     
-    for item in nav_items:
-        if st.sidebar.button(item, key=f"nav_{item}", use_container_width=True):
-            st.session_state.page = item
-            st.rerun()
-    
-    # Apply active class to selected navigation item
-    st.markdown(f"""
-        <script>
-        document.querySelectorAll('.stButton').forEach(button => {{
-            if (button.textContent === "{selected_page}") {{
-                button.classList.add('active');
-            }} else {{
-                button.classList.remove('active');
-            }}
-        }});
-        </script>
-    """, unsafe_allow_html=True)
-
-    page = st.session_state.get("page", "Home")
-
-    # Sign out button and balance
-    with st.sidebar:
-        if st.button("🚪 Sign Out", use_container_width=True):
-            try:
-                st.session_state.authenticated = False
-                st.session_state.user_id = None
-                st.session_state.username = None
-                st.session_state.balance = 100000.0
-                st.session_state.last_portfolio_refresh = 0.0
-                st.session_state.preferences = None
+        for item in nav_items:
+            if st.sidebar.button(item, key=f"nav_{item}", use_container_width=True):
+                st.session_state.page = item
                 st.rerun()
-            except Exception as e:
-                st.error(f"Sign-out failed: {str(e)}")
-
-        try:
-            st.markdown(f"<div class='balance'>Virtual Balance: ${st.session_state.balance:.2f}</div>", unsafe_allow_html=True)
-        except Exception as e:
-            logger.error(f"Failed to display balance: {str(e)}")
-            st.error(f"Failed to display balance: {str(e)}")
-
-    # Page content
-    if page == "Home":
-        st.markdown("<h2 class='subheader'>📈 Stock Market Overview</h2>", unsafe_allow_html=True)
-        try:
-            logger.info("Fetching stock prices for Home page")
-            stock_data = fetch_stock_prices()
-            if not stock_data:
-                st.error("Failed to load stock prices.")
-            else:
-                # Initialize session state for news toggle
-                if "show_news" not in st.session_state:
-                    st.session_state.show_news = {}
-                    
-                cols = st.columns(2)  # Create two columns
-                for i, symbol in enumerate(STOCK_LIST):
-                    with cols[i % 2]:  # Alternate between columns
-                        data = stock_data.get(symbol, {"current_price": 0.0, "high_price": 0.0, "low_price": 0.0, "previous_close": 0.0})
-                        current_price = data["current_price"]
-                        high_price = data["high_price"]
-                        low_price = data["low_price"]
-                        previous_close = data["previous_close"]
-                        status = "profit" if current_price > previous_close else "loss" if current_price < previous_close else ""
-                        status_icon = "↑" if status == "profit" else "↓" if status == "loss" else ""
-
-                        # Create a unique key for the news toggle button
-                        news_key = f"news_{symbol}"
-                        # Toggle news display when icon is clicked
-                        if st.button("📰", key=news_key, help=f"Show/hide news for {symbol}"):
-                            st.session_state.show_news[symbol] = not st.session_state.show_news.get(symbol, False)
-                            st.rerun()
-
-                        # Build the stock card HTML (without news)
-                        card_html = f"""
-                            <div class='stock-card' style='width: 95%; margin: 5px; position: relative; padding: 15px; border-radius: 8px; background: #2d2d2d;'>
-                                <h3 style='color: #ffffff; margin: 0 0 10px 0; font-size: 18px;'>{symbol}</h3>
-                                <div class='stock-price' style='font-size: 24px; font-weight: bold; color: #ffffff;'>${current_price:.2f} <span class='{status}'>{status_icon}</span></div>
-                                <div class='stock-details' style='font-size: 14px; color: #d1d5db; margin-top: 5px;'>High: ${high_price:.2f} | Low: ${low_price:.2f}</div>
-                            </div>
-                        """
-                        st.markdown(card_html, unsafe_allow_html=True)
-
-                        # If news is toggled on, fetch and display the top news article separately
-                        if st.session_state.show_news.get(symbol, False):
-                            logger.info(f"Rendering news for {symbol}")
-                            news_data = fetch_news(symbol)
-                            news_html = ""
-                            if news_data and len(news_data) > 0:
-                                top_article = news_data[0]  # Take the first article
-                                summary = top_article["summary"][:100] + "..." if len(top_article["summary"]) > 100 else top_article["summary"]
-                                news_html = f"""
-                                    <div style='width: 95%; margin: 5px; padding: 15px; border-radius: 8px; background: #2d2d2d; margin-top: 2px; border-top: 1px solid #4b5563;'>
-                                        <a href='{top_article["url"]}' target='_blank' style='color: #22c55e; font-size: 16px; font-weight: bold; text-decoration: none; display: block; margin-bottom: 8px;'>{top_article["title"]}</a>
-                                        <p style='color: #d1d5db; font-size: 14px; line-height: 1.5; margin: 0;'>{summary}</p>
-                                    </div>
-                                """
-                                logger.debug(f"News HTML for {symbol}: {news_html}")
-                            else:
-                                news_html = """
-                                    <div style='width: 95%; margin: 5px; padding: 15px; border-radius: 8px; background: #2d2d2d; margin-top: 2px; border-top: 1px solid #4b5563;'>
-                                        <p style='color: #d1d5db; font-size: 14px; margin: 0;'>No news available.</p>
-                                    </div>
-                                """
-                                logger.debug(f"No news available for {symbol}")
-                            # Use st.write instead of st.markdown for HTML content
-                            st.write(news_html, unsafe_allow_html=True)
-        except Exception as e:
-            logger.error(f"Failed to load stock prices for Home page: {str(e)}")
-            st.error(f"Failed to load stock prices: {str(e)}")
-
-        # Add CSS for hover effect and improved styling
-        st.markdown("""
-            <style>
-            .stock-card a:hover, .news-section a:hover {
-                color: #4ade80 !important;
-            }
-            .stock-card, .news-section {
-                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            }
-            </style>
+    
+        # Apply active class to selected navigation item
+        st.markdown(f"""
+            <script>
+            document.querySelectorAll('.stButton').forEach(button => {{
+                if (button.textContent === "{selected_page}") {{
+                    button.classList.add('active');
+                }} else {{
+                    button.classList.remove('active');
+                }}
+            }});
+            </script>
         """, unsafe_allow_html=True)
-    elif page == "Get Recommendations":
-        st.markdown("<h2 class='subheader'>📊 Get Personalized Stock Recommendations</h2>", unsafe_allow_html=True)
-        with st.form(key="preferences_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                risk_appetite = st.selectbox(
-                    "Risk Appetite",
-                    ["low", "medium", "high"],
-                    help="Select 'low' for safe/secure/cautious, 'high' for aggressive/risky, or 'medium' otherwise."
-                )
-                investment_goals = st.selectbox(
-                    "Investment Goals",
-                    ["retirement", "growth", "income"],
-                    help="Select 'retirement' for long-term savings, 'growth' for wealth/expansion, 'income' for dividends/passive."
-                )
-            with col2:
-                time_horizon = st.selectbox(
-                    "Time Horizon",
-                    ["short", "medium", "long"],
-                    help="Select 'short' for 1-3 years, 'medium' for 3-7 years, 'long' for 7+ years."
-                )
-                investment_style = st.selectbox(
-                    "Investment Style",
-                    ["value", "growth", "index"],
-                    help="Select 'index' for passive investing, or choose 'value' or 'growth'."
-                )
-            investment_amount = st.number_input(
-                "Investment Amount ($)",
-                min_value=0.0,
-                value=500.0,
-                step=100.0,
-                help="Enter the amount you wish to invest (e.g., 500.0)."
-            )
-            submit_button = st.form_submit_button("Get Recommendations")
 
-        if submit_button:
-            if investment_amount <= 0:
-                st.error("Investment amount must be greater than zero.")
-                logger.error(f"Invalid investment amount: {investment_amount}")
-            else:
-                preferences = {
-                    "risk_appetite": risk_appetite,
-                    "investment_goals": investment_goals,
-                    "time_horizon": time_horizon,
-                    "investment_amount": float(investment_amount),
-                    "investment_style": investment_style
-                }
-                st.session_state.preferences = preferences
-                logger.info(f"Submitted preferences: {preferences}")
-                
-                st.markdown("<h3 style='color: #ffffff;'>Your Investment Preferences</h3>", unsafe_allow_html=True)
-                prefs_display = {
-                    "Risk Appetite": preferences["risk_appetite"],
-                    "Investment Goals": preferences["investment_goals"],
-                    "Time Horizon": preferences["time_horizon"],
-                    "Investment Amount": f"${preferences['investment_amount']:.2f}",
-                    "Investment Style": preferences["investment_style"]
-                }
-                st.table(pd.DataFrame([prefs_display]))
-                
-                st.info("Fetching stock data, financials, and news sentiment...")
-                logger.info("Starting recommendation workflow")
-                with st.spinner("Generating recommendations..."):
-                    result = run_workflow(preferences, st.session_state.user_id)
-                if result["recommendations"]:
-                    st.success("Generated personalized recommendations!")
-                    logger.info(f"Generated recommendations: {result['recommendations']}")
-                    st.markdown("<h3 style='color: #ffffff;'>Your Stock Recommendations</h3>", unsafe_allow_html=True)
-                    for rec in result["recommendations"]:
-                        with st.expander(f"{rec['Symbol']} - {rec['Company']}"):
-                            st.markdown(f"**Action**: {rec['Action']}")
-                            st.markdown(f"**Quantity**: {rec['Quantity']} shares")
-                            st.markdown(f"**Reason**: {rec['Reason']}")
-                            st.markdown(f"**Caution**: {rec['Caution']}")
-                            st.markdown(f"**News Sentiment**: {rec['NewsSentiment']}")
-                            st.markdown(f"**Score**: {rec['Score']}")
-                else:
-                    logger.warning("No recommendations generated")
-                    st.error("No recommendations generated. Possible issues: invalid data, API errors, or rate limits.")
-                    st.info("Check finance_simulator/logs/app.log for details.")
+        page = st.session_state.get("page", "Home")
 
-    elif page == "Trade":
-        st.markdown("<h2 class='subheader'>💹 Trade Stocks</h2>", unsafe_allow_html=True)
-        mode = st.radio("Trading Mode", ["Manual", "Agent-Based"])
-        if mode == "Manual":
-            with st.form(key="manual_trade_form"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    symbol = st.selectbox("Select Stock", STOCK_LIST, key="manual_trade_stock")
-                with col2:
-                    trade_type = st.radio("Trade Type", ["Buy", "Sell"], key="manual_trade_type")
-                amount = st.number_input("Investment Amount ($)", min_value=0.0, max_value=float(st.session_state.balance), step=100.0)
-                if st.form_submit_button("Trade"):
-                    try:
-                        logger.info(f"Executing manual trade: {symbol}, ${amount}, {trade_type}")
-                        if amount <= 0:
-                            st.error("Investment amount must be greater than zero")
-                            logger.error(f"Invalid amount: {amount}")
-                        elif amount > st.session_state.balance and trade_type == "Buy":
-                            st.error("Insufficient balance")
-                            logger.error(f"Insufficient balance: {amount} > {st.session_state.balance}")
-                        elif symbol not in STOCK_LIST:
-                            st.error(f"Invalid stock symbol: {symbol}")
-                            logger.error(f"Invalid stock symbol: {symbol}")
-                        else:
-                            stock_data = fetch_stock_prices()
-                            price = stock_data.get(symbol, {"current_price": 0.0})["current_price"]
-                            if price <= 0:
-                                st.error(f"No valid price available for {symbol}")
-                                logger.error(f"No valid price for {symbol}")
-                            else:
-                                quantity = amount / price
-                                trade = {
-                                    "id": f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
-                                    "symbol": symbol,
-                                    "amount": float(amount),
-                                    "price": float(price),
-                                    "trade_type": trade_type.lower(),
-                                    "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-                                    "user_id": st.session_state.user_id,
-                                    "quantity": float(quantity)
-                                }
-                                logger.debug(f"Trade data: {trade}")
-                                for attempt in range(3):
-                                    try:
-                                        if add_trade(st.session_state.user_id, trade):
-                                            if trade_type == "Buy":
-                                                st.session_state.balance = float(st.session_state.balance - amount)
-                                            else:
-                                                st.session_state.balance = float(st.session_state.balance + amount)
-                                            update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
-                                            st.success(f"Trade executed: {trade_type} ${amount:.2f} of {symbol} at ${price:.2f} ({quantity:.2f} shares)")
-                                            logger.info(f"Trade saved: {symbol}, ${amount}, {trade_type}")
-                                            break
-                                        else:
-                                            st.error("Failed to save trade")
-                                            logger.error(f"Failed to save trade for {symbol}: add_trade returned False")
-                                            break
-                                    except mysql.connector.errors.IntegrityError as e:
-                                        logger.error(f"IntegrityError in add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
-                                        if attempt < 2:
-                                            logger.warning(f"Retrying trade save for {symbol}...")
-                                            time.sleep(1)
-                                            continue
-                                        st.error(f"Failed to save trade: Database integrity error (e.g., duplicate trade ID)")
-                                        break
-                                    except mysql.connector.errors.DatabaseError as e:
-                                        logger.error(f"DatabaseError in add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
-                                        if attempt < 2:
-                                            logger.warning(f"Retrying trade save for {symbol}...")
-                                            time.sleep(1)
-                                            continue
-                                        st.error(f"Failed to save trade: Database error")
-                                        break
-                                    except Exception as e:
-                                        logger.error(f"Unexpected error in add_trade (attempt {attempt + 1}): {str(e)}")
-                                        st.error(f"Failed to save trade: Unexpected error")
-                                        break
-                    except Exception as e:
-                        logger.error(f"Failed to execute trade: {str(e)}")
-                        st.error(f"Failed to execute trade: {str(e)}")
-        else:
-            st.markdown("<h3 style='color: #ffffff;'>Agent-Based Trade Simulation</h3>", unsafe_allow_html=True)
-            with st.form(key="agent_trade_form"):
+        # Sign out button and balance
+        with st.sidebar:
+            if st.button("🚪 Sign Out", use_container_width=True):
+                try:
+                    st.session_state.authenticated = False
+                    st.session_state.user_id = None
+                    st.session_state.username = None
+                    st.session_state.balance = 100000.0
+                    st.session_state.last_portfolio_refresh = 0.0
+                    st.session_state.preferences = None
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Sign-out failed: {str(e)}")
+
+            try:
+                st.markdown(f"<div class='balance'>Virtual Balance: ${st.session_state.balance:.2f}</div>", unsafe_allow_html=True)
+            except Exception as e:
+                logger.error(f"Failed to display balance: {str(e)}")
+                st.error(f"Failed to display balance: {str(e)}")
+
+        # Page content
+        if page == "Home":
+            st.markdown("<h2 class='subheader'>📈 Stock Market Overview</h2>", unsafe_allow_html=True)
+            try:
+                logger.info("Fetching stock prices for Home page")
+                with st.spinner("Loading stock prices..."):
+                    stock_data = fetch_stock_prices()
+                    if not stock_data:
+                        st.error("Failed to load stock prices.")
+                    else:
+                        # Initialize session state for news toggle
+                        if "show_news" not in st.session_state:
+                            st.session_state.show_news = {}
+                            
+                        cols = st.columns(2)  # Create two columns
+                        for i, symbol in enumerate(STOCK_LIST):
+                            with cols[i % 2]:  # Alternate between columns
+                                data = stock_data.get(symbol, {"current_price": 0.0, "high_price": 0.0, "low_price": 0.0, "previous_close": 0.0})
+                                current_price = data["current_price"]
+                                high_price = data["high_price"]
+                                low_price = data["low_price"]
+                                previous_close = data["previous_close"]
+                                status = "profit" if current_price > previous_close else "loss" if current_price < previous_close else ""
+                                status_icon = "↑" if status == "profit" else "↓" if status == "loss" else ""
+
+                                # Create a unique key for the news toggle button
+                                news_key = f"news_{symbol}"
+                                # Toggle news display when icon is clicked
+                                if st.button("📰", key=news_key, help=f"Show/hide news for {symbol}"):
+                                    st.session_state.show_news[symbol] = not st.session_state.show_news.get(symbol, False)
+                                    st.rerun()
+
+                                # Build the stock card HTML (without news)
+                                card_html = f"""
+                                    <div class='stock-card' style='width: 95%; margin: 5px; position: relative; padding: 15px; border-radius: 8px; background: #2d2d2d;'>
+                                        <h3 style='color: #ffffff; margin: 0 0 10px 0; font-size: 18px;'>{symbol}</h3>
+                                        <div class='stock-price' style='font-size: 24px; font-weight: bold; color: #ffffff;'>${current_price:.2f} <span class='{status}'>{status_icon}</span></div>
+                                        <div class='stock-details' style='font-size: 14px; color: #d1d5db; margin-top: 5px;'>High: ${high_price:.2f} | Low: ${low_price:.2f}</div>
+                                    </div>
+                                """
+                                st.markdown(card_html, unsafe_allow_html=True)
+
+                                # If news is toggled on, fetch and display the top news article separately
+                                if st.session_state.show_news.get(symbol, False):
+                                    logger.info(f"Rendering news for {symbol}")
+                                    news_data = fetch_news(symbol)
+                                    news_html = ""
+                                    if news_data and len(news_data) > 0:
+                                        top_article = news_data[0]  # Take the first article
+                                        summary = top_article["summary"][:100] + "..." if len(top_article["summary"]) > 100 else top_article["summary"]
+                                        news_html = f"""
+                                            <div style='width: 95%; margin: 5px; padding: 15px; border-radius: 8px; background: #2d2d2d; margin-top: 2px; border-top: 1px solid #4b5563;'>
+                                                <a href='{top_article["url"]}' target='_blank' style='color: #22c55e; font-size: 16px; font-weight: bold; text-decoration: none; display: block; margin-bottom: 8px;'>{top_article["title"]}</a>
+                                                <p style='color: #d1d5db; font-size: 14px; line-height: 1.5; margin: 0;'>{summary}</p>
+                                            </div>
+                                        """
+                                        logger.debug(f"News HTML for {symbol}: {news_html}")
+                                    else:
+                                        news_html = """
+                                            <div style='width: 95%; margin: 5px; padding: 15px; border-radius: 8px; background: #2d2d2d; margin-top: 2px; border-top: 1px solid #4b5563;'>
+                                                <p style='color: #d1d5db; font-size: 14px; margin: 0;'>No news available.</p>
+                                            </div>
+                                        """
+                                        logger.debug(f"No news available for {symbol}")
+                                    # Use st.write instead of st.markdown for HTML content
+                                    st.write(news_html, unsafe_allow_html=True)
+            except Exception as e:
+                logger.error(f"Failed to load stock prices for Home page: {str(e)}")
+                st.error(f"Failed to load stock prices: {str(e)}")
+
+            # Add CSS for hover effect and improved styling
+            st.markdown("""
+                <style>
+                .stock-card a:hover, .news-section a:hover {
+                    color: #4ade80 !important;
+                }
+                .stock-card, .news-section {
+                    box-shadow: 0 2  #2px 4px rgba(0,0,0,0.3);
+                }
+                </style>
+            """, unsafe_allow_html=True)
+        
+        elif page == "Get Recommendations":
+            st.markdown("<h2 class='subheader'>📊 Get Personalized Stock Recommendations</h2>", unsafe_allow_html=True)
+            with st.form(key="preferences_form"):
                 col1, col2 = st.columns(2)
                 with col1:
                     risk_appetite = st.selectbox(
                         "Risk Appetite",
                         ["low", "medium", "high"],
-                        help="Select 'low' for safe/secure/cautious, 'high' for aggressive/risky, or 'medium' otherwise.",
-                        key="agent_risk"
+                        help="Select 'low' for safe/secure/cautious, 'high' for aggressive/risky, or 'medium' otherwise."
                     )
                     investment_goals = st.selectbox(
                         "Investment Goals",
                         ["retirement", "growth", "income"],
-                        help="Select 'retirement' for long-term savings, 'growth' for wealth/expansion, 'income' for dividends/passive.",
-                        key="agent_goals"
+                        help="Select 'retirement' for long-term savings, 'growth' for wealth/expansion, 'income' for dividends/passive."
                     )
                 with col2:
                     time_horizon = st.selectbox(
                         "Time Horizon",
                         ["short", "medium", "long"],
-                        help="Select 'short' for 1-3 years, 'medium' for 3-7 years, 'long' for 7+ years.",
-                        key="agent_horizon"
+                        help="Select 'short' for 1-3 years, 'medium' for 3-7 years, 'long' for 7+ years."
                     )
                     investment_style = st.selectbox(
                         "Investment Style",
                         ["value", "growth", "index"],
-                        help="Select 'index' for passive investing, or choose 'value' or 'growth'.",
-                        key="agent_style"
+                        help="Select 'index' for passive investing, or choose 'value' or 'growth'."
                     )
                 investment_amount = st.number_input(
                     "Investment Amount ($)",
                     min_value=0.0,
                     value=500.0,
                     step=100.0,
-                    help="Enter the amount you wish to invest (e.g., 500.0).",
-                    key="agent_amount"
+                    help="Enter the amount you wish to invest (e.g., 500.0)."
                 )
-                submit_button = st.form_submit_button("Execute Agent-Based Trade")
+                submit_button = st.form_submit_button("Get Recommendations")
 
             if submit_button:
-                try:
-                    if investment_amount <= 0:
-                        st.error("Investment amount must be greater than zero.")
-                        logger.error(f"Invalid investment amount: {investment_amount}")
+                if investment_amount <= 0:
+                    st.error("Investment amount must be greater than zero.")
+                    logger.error(f"Invalid investment amount: {investment_amount}")
+                else:
+                    preferences = {
+                        "risk_appetite": risk_appetite,
+                        "investment_goals": investment_goals,
+                        "time_horizon": time_horizon,
+                        "investment_amount": float(investment_amount),
+                        "investment_style": investment_style
+                    }
+                    st.session_state.preferences = preferences
+                    logger.info(f"Submitted preferences: {preferences}")
+                    
+                    st.markdown("<h3 style='color: #ffffff;'>Your Investment Preferences</h3>", unsafe_allow_html=True)
+                    prefs_display = {
+                        "Risk Appetite": preferences["risk_appetite"],
+                        "Investment Goals": preferences["investment_goals"],
+                        "Time Horizon": preferences["time_horizon"],
+                        "Investment Amount": f"${preferences['investment_amount']:.2f}",
+                        "Investment Style": preferences["investment_style"]
+                    }
+                    st.table(pd.DataFrame([prefs_display]))
+                    
+                    st.info("Fetching stock data, financials, and news sentiment...")
+                    logger.info("Starting recommendation workflow")
+                    with st.spinner("Generating recommendations..."):
+                        result = run_workflow(preferences, st.session_state.user_id)
+                    if result["recommendations"]:
+                        st.success("Generated personalized recommendations!")
+                        logger.info(f"Generated recommendations: {result['recommendations']}")
+                        st.markdown("<h3 style='color: #ffffff;'>Your Stock Recommendations</h3>", unsafe_allow_html=True)
+                        for rec in result["recommendations"]:
+                            with st.expander(f"{rec['Symbol']} - {rec['Company']}"):
+                                st.markdown(f"**Action**: {rec['Action']}")
+                                st.markdown(f"**Quantity**: {rec['Quantity']} shares")
+                                st.markdown(f"**Reason**: {rec['Reason']}")
+                                st.markdown(f"**Caution**: {rec['Caution']}")
+                                st.markdown(f"**News Sentiment**: {rec['NewsSentiment']}")
+                                st.markdown(f"**Score**: {rec['Score']}")
                     else:
-                        preferences = {
-                            "risk_appetite": risk_appetite,
-                            "investment_goals": investment_goals,
-                            "time_horizon": time_horizon,
-                            "investment_amount": float(investment_amount),
-                            "investment_style": investment_style
-                        }
-                        logger.info(f"Agent-based trade preferences: {preferences}")
-                        #st.info("Fetching stock data, financials, and news sentiment...")
-                        with st.spinner("Generating trade recommendation..."):
-                            # Create a placeholder for agent activity
-                            with st.expander("Agent Activity", expanded=True):
+                        logger.warning("No recommendations generated")
+                        st.error("No recommendations generated Possible issues: invalid data, API errors, or rate limits.")
+                        st.info("Check finance_simulator/logs/app.log for details.")
 
-                                activity_placeholder = st.empty()
-                                activity_messages = ["Starting analysis..."]
-                                activity_placeholder.markdown("\n\n".join(activity_messages))
-                                time.sleep(2)
-
-                                activity_messages.append("Market Analyst is reviewing financial data, including cash flows, income statements, and balance sheets...")
-                                activity_placeholder.markdown("\n\n".join(activity_messages))
-                                time.sleep(1) 
-
-                                result = run_workflow(preferences, st.session_state.user_id)
-                                
-                                # Update with recommendation generation status
-                                if result["recommendations"]:
-                                    activity_messages.append(f"Strategist generated {len(result['recommendations'])} recommendations based on your preferences.")
-                                else:
-                                    activity_messages.append("No recommendations generated due to data issues.")
-                                activity_placeholder.markdown("\n\n".join(f"- {msg}" for msg in activity_messages))                        
-                        if result["recommendations"]:
-                            st.success("Generated trade recommendations!")
-                            logger.info(f"Agent-based trade recommendations: {result['recommendations']}")
-                            strategist = StrategistAgent()
-                            executor = ExecutorAgent()
-                            # Select the best recommendation
-                            with st.expander("Agent Activity", expanded=True):
-                                activity_messages.append("Strategist is selecting the best recommendation...")
-                                activity_placeholder.markdown("\n\n".join(activity_messages))
-                            recommendation = strategist.select_best_recommendation(
-                                result["recommendations"],
-                                preferences,
-                                result.get("market_data", [])  # Pass market_data if available
-                            )
-                            if not recommendation:
-                                st.error("No suitable recommendation selected. Possible issues: API errors or rate limits.")
-                                logger.warning("No recommendation selected by StrategistAgent")
+        elif page == "Trade":
+            st.markdown("<h2 class='subheader'>💹 Trade Stocks</h2>", unsafe_allow_html=True)
+            mode = st.radio("Trading Mode", ["Manual", "Agent-Based"])
+            if mode == "Manual":
+                with st.form(key="manual_trade_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        symbol = st.selectbox("Select Stock", STOCK_LIST, key="manual_trade_stock")
+                    with col2:
+                        trade_type = st.radio("Trade Type", ["Buy", "Sell"], key="manual_trade_type")
+                    amount = st.number_input("Investment Amount ($)", min_value=0.0, max_value=float(st.session_state.balance), step=100.0)
+                    if st.form_submit_button("Trade"):
+                        try:
+                            logger.info(f"Executing manual trade: {symbol}, ${amount}, {trade_type}")
+                            if amount <= 0:
+                                st.error("Investment amount must be greater than zero")
+                                logger.error(f"Invalid amount: {amount}")
+                            elif amount > st.session_state.balance and trade_type == "Buy":
+                                st.error("Insufficient balance")
+                                logger.error(f"Insufficient balance: {amount} > {st.session_state.balance}")
+                            elif symbol not in STOCK_LIST:
+                                st.error(f"Invalid stock symbol: {symbol}")
+                                logger.error(f"Invalid stock symbol: {symbol}")
                             else:
-                                # Display selected recommendation in a formatted way
-                                with st.expander("Selected Recommendation", expanded=True):
-                                    activity_messages.append("Strategist is selecting the best recommendation...")
-                                    activity_placeholder.markdown("\n\n".join(activity_messages))
-                                    #activity_placeholder.markdown("Strategist selected a recommendation for trading.")
-                                    st.markdown(f"""
-                                    **{recommendation['Symbol']} - {recommendation['Company']}**
-                                    - Action: {recommendation['Action']}
-                                    - Quantity: {recommendation['Quantity']} shares
-                                    - Reason: {recommendation['Reason']}
-                                    - Caution: {recommendation['Caution']}
-                                    - News Sentiment: {recommendation['NewsSentiment']}
-                                    - Score: {recommendation['Score']}
-                                    """)
-                                trade = executor.execute_trade(recommendation, st.session_state.user_id)
-                                for attempt in range(3):
-                                    try:
-                                        quote = finnhub_client.quote(trade["symbol"])
-                                        trade["price"] = float(quote.get("c", 0.0))
-                                        update_stock_price_in_db(trade["symbol"], quote)
-                                        break
-                                    except Exception as e:
-                                        if "429" in str(e):
-                                            logger.warning(f"Rate limit for {trade['symbol']}, retrying in {10 * (2 ** attempt)}s")
-                                            time.sleep(10 * (2 ** attempt))
-                                            if attempt == 2:
-                                                logger.error(f"Rate limit exceeded for {trade['symbol']}, falling back to DB")
-                                                db_quote = get_stock_price_from_db(trade["symbol"])
-                                                if db_quote:
-                                                    trade["price"] = db_quote["c"]
-                                                else:
-                                                    raise Exception("No price available")
-                                        else:
-                                            raise
-                                trade["id"] = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
-                                trade["timestamp"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-                                trade["amount"] = float(trade["price"]) * float(trade["quantity"])
-                                if trade["amount"] <= st.session_state.balance or trade["trade_type"] == "sell":
+                                stock_data = fetch_stock_prices()
+                                price = stock_data.get(symbol, {"current_price": 0.0})["current_price"]
+                                if price <= 0:
+                                    st.error(f"No valid price available for {symbol}")
+                                    logger.error(f"No valid price for {symbol}")
+                                else:
+                                    quantity = amount / price
+                                    trade = {
+                                        "id": f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}",
+                                        "symbol": symbol,
+                                        "amount": float(amount),
+                                        "price": float(price),
+                                        "trade_type": trade_type.lower(),
+                                        "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                                        "user_id": st.session_state.user_id,
+                                        "quantity": float(quantity)
+                                    }
+                                    logger.debug(f"Trade data: {trade}")
                                     for attempt in range(3):
                                         try:
                                             if add_trade(st.session_state.user_id, trade):
-                                                if trade["trade_type"] == "buy":
-                                                    st.session_state.balance = float(st.session_state.balance - trade["amount"])
+                                                if trade_type == "Buy":
+                                                    st.session_state.balance = float(st.session_state.balance - amount)
                                                 else:
-                                                    st.session_state.balance = float(st.session_state.balance + trade["amount"])
+                                                    st.session_state.balance = float(st.session_state.balance + amount)
                                                 update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
-                                                st.success(f"Agent executed trade: {trade['trade_type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
-                                                logger.info(f"Agent trade saved: {trade['symbol']}, ${trade['amount']}, {trade['trade_type']}")
+                                                st.success(f"Trade executed: {trade_type} ${amount:.2f} of {symbol} at ${price:.2f} ({quantity:.2f} shares)")
+                                                logger.info(f"Trade saved: {symbol}, ${amount}, {trade_type}")
                                                 break
                                             else:
                                                 st.error("Failed to save trade")
-                                                logger.error(f"Failed to save agent-based trade for {trade['symbol']}: add_trade returned False")
+                                                logger.error(f"Failed to save trade for {symbol}: add_trade returned False")
                                                 break
                                         except mysql.connector.errors.IntegrityError as e:
-                                            logger.error(f"IntegrityError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                            logger.error(f"IntegrityError in add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
                                             if attempt < 2:
-                                                logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
+                                                logger.warning(f"Retrying trade save for {symbol}...")
                                                 time.sleep(1)
                                                 continue
-                                            st.error(f"Failed to save trade: Database integrity error")
+                                            st.error(f"Failed to save trade: Database integrity error (e.g., duplicate trade ID)")
                                             break
                                         except mysql.connector.errors.DatabaseError as e:
-                                            logger.error(f"DatabaseError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                            logger.error(f"DatabaseError in add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
                                             if attempt < 2:
-                                                logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
+                                                logger.warning(f"Retrying trade save for {symbol}...")
                                                 time.sleep(1)
                                                 continue
                                             st.error(f"Failed to save trade: Database error")
                                             break
                                         except Exception as e:
-                                            logger.error(f"Unexpected error in agent-based add_trade (attempt {attempt + 1}): {str(e)}")
+                                            logger.error(f"Unexpected error in add_trade (attempt {attempt + 1}): {str(e)}")
                                             st.error(f"Failed to save trade: Unexpected error")
                                             break
-                                else:
-                                    st.error("Insufficient balance")
-                        else:
-                            logger.warning("No recommendations available for trading")
-                            st.error("No recommendations available for trading. Possible issues: API errors or rate limits.")
-                            st.info("Check finance_simulator/logs/app.log for details.")
-                except Exception as e:
-                    logger.error(f"Agent-based trade failed: {str(e)}")
-                    st.error(f"Agent-based trade failed: {str(e)}")
-                    if "429" in str(e):
-                        st.warning("API rate limit exceeded. Please wait a few minutes and try again.")
-
-    elif page == "Portfolio":
-        st.markdown("<h2 class='subheader'>💼 Your Portfolio</h2>", unsafe_allow_html=True)
-        st.markdown("<h3 style='color: #ffffff;'>Current Holdings</h3>", unsafe_allow_html=True)
-        try:
-            logger.info(f"Fetching portfolio for user {st.session_state.user_id}")
-            if "last_portfolio_refresh" not in st.session_state:
-                st.session_state.last_portfolio_refresh = time.time()
-
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                if st.button("Refresh Portfolio"):
-                    st.session_state.last_portfolio_refresh = time.time()
-                    st.rerun()
-            with col2:
-                auto_refresh = st.checkbox("Auto-Refresh (every 60s)", value=False)
-            
-            if auto_refresh:
-                current_time = time.time()
-                if current_time - st.session_state.last_portfolio_refresh >= 60:
-                    st.session_state.last_portfolio_refresh = current_time
-                    st.rerun()
-
-            try:
-                trades = get_portfolio(st.session_state.user_id)
-            except Exception as e:
-                logger.error(f"Failed to fetch portfolio from database: {str(e)}")
-                st.error(f"Failed to fetch portfolio: {str(e)}")
-                trades = None
-
-            if not trades:
-                st.info("No trades in your portfolio yet.")
-                logger.info(f"No trades found for user {st.session_state.user_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to execute trade: {str(e)}")
+                            st.error(f"Failed to execute trade: {str(e)}")
             else:
-                holdings = {}
-                transaction_history = {}
-                for trade in trades:
-                    symbol = trade["symbol"]
-                    if not all(isinstance(trade.get(key), (int, float, Decimal)) and trade.get(key) > 0 for key in ["amount", "price"]):
-                        logger.warning(f"Skipping invalid trade for {symbol}: amount={trade['amount']}, price={trade['price']}")
-                        continue
-                    quantity = float(trade["amount"]) / float(trade["price"]) if trade["amount"] and trade["price"] else 0.0
-                    if symbol not in holdings:
-                        holdings[symbol] = {"quantity": 0, "total_cost": 0, "buy_trades": 0, "realized_profit": 0}
-                        transaction_history[symbol] = []
-                    
-                    try:
-                        if trade["trade_type"] == "buy":
-                            holdings[symbol]["quantity"] += quantity
-                            holdings[symbol]["total_cost"] += trade["amount"]
-                            holdings[symbol]["buy_trades"] += 1
-                        else:
-                            if holdings[symbol]["quantity"] >= quantity:
-                                avg_buy_price = holdings[symbol]["total_cost"] / holdings[symbol]["quantity"] if holdings[symbol]["quantity"] > 0 else trade["price"]
-                                holdings[symbol]["quantity"] -= quantity
-                                holdings[symbol]["total_cost"] -= avg_buy_price * quantity
-                                holdings[symbol]["buy_trades"] = max(0, holdings[symbol]["buy_trades"] - 1)
-                                realized_profit = (trade["price"] - avg_buy_price) * quantity
-                                holdings[symbol]["realized_profit"] += realized_profit
-                            else:
-                                logger.warning(f"Cannot sell {quantity} shares of {symbol}: only {holdings[symbol]['quantity']} available")
-                                continue
-                    except Exception as e:
-                        logger.error(f"Error processing trade for {symbol}: {str(e)}")
-                        continue
-                    
-                    transaction_history[symbol].append({
-                        "trade_type": trade["trade_type"].capitalize(),
-                        "Quantity": quantity,
-                        "Price ($)": trade["price"],
-                        "Amount ($)": trade["amount"],
-                        "Timestamp": trade["timestamp"]
-                    })
+                st.markdown("<h3 style='color: #ffffff;'>Agent-Based Trade Simulation</h3>", unsafe_allow_html=True)
+                with st.form(key="agent_trade_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        risk_appetite = st.selectbox(
+                            "Risk Appetite",
+                            ["low", "medium", "high"],
+                            help="Select 'low' for safe/secure/cautious, 'high' for aggressive/risky, or 'medium' otherwise.",
+                            key="agent_risk"
+                        )
+                        investment_goals = st.selectbox(
+                            "Investment Goals",
+                            ["retirement", "growth", "income"],
+                            help="Select 'retirement' for long-term savings, 'growth' for wealth/expansion, 'income' for dividends/passive.",
+                            key="agent_goals"
+                        )
+                    with col2:
+                        time_horizon = st.selectbox(
+                            "Time Horizon",
+                            ["short", "medium", "long"],
+                            help="Select 'short' for 1-3 years, 'medium' for 3-7 years, 'long' for 7+ years.",
+                            key="agent_horizon"
+                        )
+                        investment_style = st.selectbox(
+                            "Investment Style",
+                            ["value", "growth", "index"],
+                            help="Select 'index' for passive investing, or choose 'value' or 'growth'.",
+                            key="agent_style"
+                        )
+                    investment_amount = st.number_input(
+                        "Investment Amount ($)",
+                        min_value=0.0,
+                        value=500.0,
+                        step=100.0,
+                        help="Enter the amount you wish to invest (e.g., 500.0).",
+                        key="agent_amount"
+                    )
+                    submit_button = st.form_submit_button("Execute Agent-Based Trade")
 
-                stock_data = fetch_stock_prices()
-                portfolio_data = []
-                for symbol, data in holdings.items():
-                    if data["quantity"] > 0:
-                        try:
-                            cache_key = f"price_{symbol}"
-                            if cache_key in price_cache:
-                                current_price = price_cache[cache_key]["current_price"]
-                            else:
-                                db_quote = get_stock_price_from_db(symbol)
-                                if db_quote:
-                                    current_price = db_quote["c"]
+                if submit_button:
+                    try:
+                        if investment_amount <= 0:
+                            st.error("Investment amount must be greater than zero.")
+                            logger.error(f"Invalid investment amount: {investment_amount}")
+                        else:
+                            preferences = {
+                                "risk_appetite": risk_appetite,
+                                "investment_goals": investment_goals,
+                                "time_horizon": time_horizon,
+                                "investment_amount": float(investment_amount),
+                                "investment_style": investment_style
+                            }
+                            logger.info(f"Agent-based trade preferences: {preferences}")
+                            with st.spinner("Generating trade recommendation..."):
+                                # Create a placeholder for agent activity
+                                with st.expander("Agent Activity", expanded=True):
+                                    activity_placeholder = st.empty()
+                                    activity_messages = ["Starting analysis..."]
+                                    activity_placeholder.markdown("\n\n".join(activity_messages))
+                                    time.sleep(2)
+
+                                    activity_messages.append("Market Analyst is reviewing financial data, including cash flows, income statements, and balance sheets...")
+                                    activity_placeholder.markdown("\n\n".join(activity_messages))
+                                    time.sleep(1) 
+
+                                    result = run_workflow(preferences, st.session_state.user_id)
+                                    
+                                    # Update with recommendation generation status
+                                    if result["recommendations"]:
+                                        activity_messages.append(f"Strategist generated {len(result['recommendations'])} recommendations based on your preferences.")
+                                    else:
+                                        activity_messages.append("No recommendations generated due to data issues.")
+                                    activity_placeholder.markdown("\n\n".join(f"- {msg}" for msg in activity_messages))                        
+                            if result["recommendations"]:
+                                st.success("Generated trade recommendations!")
+                                logger.info(f"Agent-based trade recommendations: {result['recommendations']}")
+                                strategist = StrategistAgent()
+                                executor = ExecutorAgent()
+                                # Select the best recommendation
+                                with st.expander("Agent Activity", expanded=True):
+                                    activity_messages.append("Strategist is selecting the best recommendation...")
+                                    activity_placeholder.markdown("\n\n".join(activity_messages))
+                                recommendation = strategist.select_best_recommendation(
+                                    result["recommendations"],
+                                    preferences,
+                                    result.get("market_data", [])  # Pass market_data if available
+                                )
+                                if not recommendation:
+                                    st.error("No suitable recommendation selected. Possible issues: API errors or rate limits.")
+                                    logger.warning("No recommendation selected by StrategistAgent")
                                 else:
+                                    # Display selected recommendation in a formatted way
+                                    with st.expander("Selected Recommendation", expanded=True):
+                                        activity_messages.append("Strategist is selecting the best recommendation...")
+                                        activity_placeholder.markdown("\n\n".join(activity_messages))
+                                        st.markdown(f"""
+                                        **{recommendation['Symbol']} - {recommendation['Company']}**
+                                        - Action: {recommendation['Action']}
+                                        - Quantity: {recommendation['Quantity']} shares
+                                        - Reason: {recommendation['Reason']}
+                                        - Caution: {recommendation['Caution']}
+                                        - News Sentiment: {recommendation['NewsSentiment']}
+                                        - Score: {recommendation['Score']}
+                                        """)
+                                    trade = executor.execute_trade(recommendation, st.session_state.user_id)
                                     for attempt in range(3):
                                         try:
-                                            quote = finnhub_client.quote(symbol)
-                                            current_price = quote.get("c", stock_data.get(symbol, {"current_price": 0.0})["current_price"])
-                                            price_cache[cache_key] = {"current_price": current_price}
-                                            update_stock_price_in_db(symbol, quote)
+                                            quote = finnhub_client.quote(trade["symbol"])
+                                            trade["price"] = float(quote.get("c", 0.0))
+                                            update_stock_price_in_db(trade["symbol"], quote)
                                             break
                                         except Exception as e:
                                             if "429" in str(e):
-                                                logger.warning(f"Rate limit for {symbol}, retrying in {10 * (2 ** attempt)}s")
+                                                logger.warning(f"Rate limit for {trade['symbol']}, retrying in {10 * (2 ** attempt)}s")
                                                 time.sleep(10 * (2 ** attempt))
                                                 if attempt == 2:
-                                                    logger.error(f"Rate limit exceeded for {symbol}, falling back to DB")
-                                                    db_quote = get_stock_price_from_db(symbol)
+                                                    logger.error(f"Rate limit exceeded for {trade['symbol']}, falling back to DB")
+                                                    db_quote = get_stock_price_from_db(trade["symbol"])
                                                     if db_quote:
-                                                        current_price = db_quote["c"]
+                                                        trade["price"] = db_quote["c"]
+                                                    else:
+                                                        raise Exception("No price available")
+                                            else:
+                                                raise
+                                    trade["id"] = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+                                    trade["timestamp"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                                    trade["amount"] = float(trade["price"]) * float(trade["quantity"])
+                                    if trade["amount"] <= st.session_state.balance or trade["trade_type"] == "sell":
+                                        for attempt in range(3):
+                                            try:
+                                                if add_trade(st.session_state.user_id, trade):
+                                                    if trade["trade_type"] == "buy":
+                                                        st.session_state.balance = float(st.session_state.balance - trade["amount"])
+                                                    else:
+                                                        st.session_state.balance = float(st.session_state.balance + trade["amount"])
+                                                    update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
+                                                    st.success(f"Agent executed trade: {trade['trade_type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
+                                                    logger.info(f"Agent trade saved: {trade['symbol']}, ${trade['amount']}, {trade['trade_type']}")
+                                                    break
+                                                else:
+                                                    st.error("Failed to save trade")
+                                                    logger.error(f"Failed to save agent-based trade for {trade['symbol']}: add_trade returned False")
+                                                    break
+                                            except mysql.connector.errors.IntegrityError as e:
+                                                logger.error(f"IntegrityError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                                if attempt < 2:
+                                                    logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
+                                                    time.sleep(1)
+                                                    continue
+                                                st.error(f"Failed to save trade: Database integrity error")
+                                                break
+                                            except mysql.connector.errors.DatabaseError as e:
+                                                logger.error(f"DatabaseError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                                if attempt < 2:
+                                                    logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
+                                                    time.sleep(1)
+                                                    continue
+                                                st.error(f"Failed to save trade: Database error")
+                                                break
+                                            except Exception as e:
+                                                logger.error(f"Unexpected error in agent-based add_trade (attempt {attempt + 1}): {str(e)}")
+                                                st.error(f"Failed to save trade: Unexpected error")
+                                                break
+                                    else:
+                                        st.error("Insufficient balance")
+                            else:
+                                logger.warning("No recommendations available for trading")
+                                st.error("No recommendations available for trading. Possible issues: API errors or rate limits.")
+                                st.info("Check finance_simulator/logs/app.log for details.")
+                    except Exception as e:
+                        logger.error(f"Agent-based trade failed: {str(e)}")
+                        st.error(f"Agent-based trade failed: {str(e)}")
+                        if "429" in str(e):
+                            st.warning("API rate limit exceeded. Please wait a few minutes and try again.")
+
+        elif page == "Portfolio":
+            st.markdown("<h2 class='subheader'>💼 Your Portfolio</h2>", unsafe_allow_html=True)
+            st.markdown("<h3 style='color: #ffffff;'>Current Holdings</h3>", unsafe_allow_html=True)
+            try:
+                logger.info(f"Fetching portfolio for user {st.session_state.user_id}")
+                if "last_portfolio_refresh" not in st.session_state:
+                    st.session_state.last_portfolio_refresh = time.time()
+
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    if st.button("Refresh Portfolio"):
+                        st.session_state.last_portfolio_refresh = time.time()
+                        st.rerun()
+                with col2:
+                    auto_refresh = st.checkbox("Auto-Refresh (every 60s)", value=False)
+                
+                if auto_refresh:
+                    current_time = time.time()
+                    if current_time - st.session_state.last_portfolio_refresh >= 60:
+                        st.session_state.last_portfolio_refresh = current_time
+                        st.rerun()
+
+                with st.spinner("Loading portfolio data..."):
+                    try:
+                        trades = get_portfolio(st.session_state.user_id)
+                    except Exception as e:
+                        logger.error(f"Failed to fetch portfolio from database: {str(e)}")
+                        st.error(f"Failed to fetch portfolio: {str(e)}")
+                        trades = None
+
+                    if not trades:
+                        st.info("No trades in your portfolio yet.")
+                        logger.info(f"No trades found for user {st.session_state.user_id}")
+                    else:
+                        holdings = {}
+                        transaction_history = {}
+                        for trade in trades:
+                            symbol = trade["symbol"]
+                            if not all(isinstance(trade.get(key), (int, float, Decimal)) and trade.get(key) > 0 for key in ["amount", "price"]):
+                                logger.warning(f"Skipping invalid trade for {symbol}: amount={trade['amount']}, price={trade['price']}")
+                                continue
+                            quantity = float(trade["amount"]) / float(trade["price"]) if trade["amount"] and trade["price"] else 0.0
+                            if symbol not in holdings:
+                                holdings[symbol] = {"quantity": 0, "total_cost": 0, "buy_trades": 0, "realized_profit": 0}
+                                transaction_history[symbol] = []
+                            
+                            try:
+                                if trade["trade_type"] == "buy":
+                                    holdings[symbol]["quantity"] += quantity
+                                    holdings[symbol]["total_cost"] += trade["amount"]
+                                    holdings[symbol]["buy_trades"] += 1
+                                else:
+                                    if holdings[symbol]["quantity"] >= quantity:
+                                        avg_buy_price = float(holdings[symbol]["total_cost"]) / float(holdings[symbol]["quantity"]) if holdings[symbol]["quantity"] > 0 else float(trade["price"])
+                                        holdings[symbol]["quantity"] -= quantity
+                                        holdings[symbol]["total_cost"] -= avg_buy_price * quantity
+                                        holdings[symbol]["buy_trades"] = max(0, holdings[symbol]["buy_trades"] - 1)
+                                        realized_profit = (float(trade["price"]) - avg_buy_price) * quantity
+                                        holdings[symbol]["realized_profit"] += realized_profit
+                                    else:
+                                        logger.warning(f"Cannot sell {quantity} shares of {symbol}: only {holdings[symbol]['quantity']} available")
+                                        continue
+                            except Exception as e:
+                                logger.error(f"Error processing trade for {symbol}: {str(e)}")
+                                continue
+                            
+                            transaction_history[symbol].append({
+                                "trade_type": trade["trade_type"].capitalize(),
+                                "Quantity": quantity,
+                                "Price ($)": trade["price"],
+                                "Amount ($)": trade["amount"],
+                                "Timestamp": trade["timestamp"]
+                            })
+
+                        stock_data = fetch_stock_prices()
+                        portfolio_data = []
+                        for symbol, data in holdings.items():
+                            if data["quantity"] > 0:
+                                try:
+                                    cache_key = f"price_{symbol}"
+                                    if cache_key in price_cache:
+                                        current_price = price_cache[cache_key]["current_price"]
+                                    else:
+                                        db_quote = get_stock_price_from_db(symbol)
+                                        if db_quote:
+                                            current_price = db_quote["c"]
+                                        else:
+                                            for attempt in range(3):
+                                                try:
+                                                    quote = finnhub_client.quote(symbol)
+                                                    current_price = quote.get("c", stock_data.get(symbol, {"current_price": 0.0})["current_price"])
+                                                    price_cache[cache_key] = {"current_price": current_price}
+                                                    update_stock_price_in_db(symbol, quote)
+                                                    break
+                                                except Exception as e:
+                                                    if "429" in str(e):
+                                                        logger.warning(f"Rate limit for {symbol}, retrying in {10 * (2 ** attempt)}s")
+                                                        time.sleep(10 * (2 ** attempt))
+                                                        if attempt == 2:
+                                                            logger.error(f"Rate limit exceeded for {symbol}, falling back to DB")
+                                                            db_quote = get_stock_price_from_db(symbol)
+                                                            if db_quote:
+                                                                current_price = db_quote["c"]
+                                                            else:
+                                                                current_price = stock_data.get(symbol, {"current_price": 0.0})["current_price"]
+                                                            break
                                                     else:
                                                         current_price = stock_data.get(symbol, {"current_price": 0.0})["current_price"]
-                                                    break
-                                            else:
-                                                current_price = stock_data.get(symbol, {"current_price": 0.0})["current_price"]
-                                                break
-                            
-                            avg_buy_price = data["total_cost"] / data["quantity"] if data["quantity"] > 0 else 0
-                            unrealized_profit = (current_price - avg_buy_price) * data["quantity"]
-                            portfolio_data.append({
-                                "Symbol": symbol,
-                                "Quantity": data["quantity"],
-                                "Avg Buy Price ($)": avg_buy_price,
-                                "Current Price ($)": current_price,
-                                "Unrealized Profit ($)": unrealized_profit,
-                                "Realized Profit ($)": data["realized_profit"]
-                            })
-                        except Exception as e:
-                            logger.error(f"Failed to fetch price for {symbol}: {str(e)}")
-                            portfolio_data.append({
-                                "Symbol": symbol,
-                                "Quantity": data["quantity"],
-                                "Avg Buy Price ($)": data["total_cost"] / data["quantity"] if data["quantity"] > 0 else 0,
-                                "Current Price ($)": stock_data.get(symbol, {"current_price": 0.0})["current_price"],
-                                "Unrealized Profit ($)": 0.0,
-                                "Realized Profit ($)": data["realized_profit"]
-                            })
+                                                        break
+                                    
+                                    avg_buy_price = float(data["total_cost"]) / float(data["quantity"]) if data["quantity"] > 0 else 0
+                                    unrealized_profit = (current_price - avg_buy_price) * data["quantity"]
+                                    portfolio_data.append({
+                                        "Symbol": symbol,
+                                        "Quantity": data["quantity"],
+                                        "Avg Buy Price ($)": avg_buy_price,
+                                        "Current Price ($)": current_price,
+                                        "Unrealized Profit ($)": unrealized_profit,
+                                        "Realized Profit ($)": data["realized_profit"]
+                                    })
+                                except Exception as e:
+                                    logger.error(f"Failed to fetch price for {symbol}: {str(e)}")
+                                    portfolio_data.append({
+                                        "Symbol": symbol,
+                                        "Quantity": data["quantity"],
+                                        "Avg Buy Price ($)": float(data["total_cost"]) / float(data["quantity"]) if data["quantity"] > 0 else 0,
+                                        "Current Price ($)": stock_data.get(symbol, {"current_price": 0.0})["current_price"],
+                                        "Unrealized Profit ($)": 0.0,
+                                        "Realized Profit ($)": data["realized_profit"]
+                                    })
 
-                if portfolio_data:
-                    st.table(pd.DataFrame(portfolio_data))
+                        if portfolio_data:
+                            st.table(pd.DataFrame(portfolio_data))
+                        else:
+                            st.info("No active holdings in your portfolio.")
+
+                        st.markdown("<h3 style='color: #ffffff;'>Transaction History</h3>", unsafe_allow_html=True)
+                        for symbol, transactions in transaction_history.items():
+                            with st.expander(f"Transactions for {symbol}"):
+                                st.table(pd.DataFrame(transactions))
+            except Exception as e:
+                logger.error(f"Failed to load portfolio: {str(e)}")
+                st.error(f"Failed to load portfolio: {str(e)}")
+
+        elif page == "Leaderboard":
+            st.markdown("<h2 class='subheader'>🏆 Leaderboard</h2>", unsafe_allow_html=True)
+            try:
+                logger.info("Fetching leaderboard")
+                leaderboard = get_leaderboard()
+                if leaderboard:
+                    top_user = leaderboard[0]
+                    st.markdown(f"<div class='top-user'>Top Investor: {top_user['username']} with ${float(top_user['balance']):,.2f}</div>", unsafe_allow_html=True)
+                    
+                    df = pd.DataFrame(leaderboard, columns=["username", "balance"]).rename(columns={"balance": "Masked Balance","username":"Username"})
+                    df.reset_index(drop=True, inplace=True)
+                    df["Masked Balance"] = df["Masked Balance"].apply(lambda x: f"${float(x):,.2f}")
+
+                    # Use st.write with .to_html and unsafe_allow_html=True to hide index
+                    st.write(df.to_html(index=False, classes='table table-striped', justify='center'), unsafe_allow_html=True)
+
+                    # Optionally, add some CSS to style the table via st.markdown
+                    st.markdown("""
+                        <style>
+                        .table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            text-align: center;
+                            font-weight: bold;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
+
                 else:
-                    st.info("No active holdings in your portfolio.")
-
-                st.markdown("<h3 style='color: #ffffff;'>Transaction History</h3>", unsafe_allow_html=True)
-                for symbol, transactions in transaction_history.items():
-                    with st.expander(f"Transactions for {symbol}"):
-                        st.table(pd.DataFrame(transactions))
-        except Exception as e:
-            logger.error(f"Failed to load portfolio: {str(e)}")
-            st.error(f"Failed to load portfolio: {str(e)}")
-
-    elif page == "Leaderboard":
-        st.markdown("<h2 class='subheader'>🏆 Leaderboard</h2>", unsafe_allow_html=True)
-        try:
-            logger.info("Fetching leaderboard")
-            leaderboard = get_leaderboard()
-            if leaderboard:
-                top_user = leaderboard[0]
-                st.markdown(f"<div class='top-user'>Top Investor: {top_user['username']} with ${float(top_user['balance']):,.2f}</div>", unsafe_allow_html=True)
-                
-                df = pd.DataFrame(leaderboard, columns=["username", "balance"]).rename(columns={"balance": "Masked Balance","username":"Username"})
-                df.reset_index(drop=True, inplace=True)
-                df["Masked Balance"] = df["Masked Balance"].apply(lambda x: f"${float(x):,.2f}")
-
-                # Use st.write with .to_html and unsafe_allow_html=True to hide index
-                st.write(df.to_html(index=False, classes='table table-striped', justify='center'), unsafe_allow_html=True)
-
-                # Optionally, add some CSS to style the table via st.markdown
-                st.markdown("""
-                    <style>
-                    .table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        text-align: center;
-                        font-weight: bold;
-                    }
-                    </style>
-                """, unsafe_allow_html=True)
-
-            else:
-                st.info("No leaderboard data available.")
-        except Exception as e:
-            logger.error(f"Failed to load leaderboard: {str(e)}")
-            st.error(f"Failed to load leaderboard: {str(e)}")
+                    st.info("No leaderboard data available.")
+            except Exception as e:
+                logger.error(f"Failed to load leaderboard: {str(e)}")
+                st.error(f"Failed to load leaderboard: {str(e)}")
