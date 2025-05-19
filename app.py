@@ -576,9 +576,9 @@ else:
             investment_amount = st.number_input(
                 "Investment Amount ($)",
                 min_value=0.0,
-                value=10000.0,
+                value=500.0,
                 step=100.0,
-                help="Enter the amount you wish to invest (e.g., 5000.0)."
+                help="Enter the amount you wish to invest (e.g., 500.0)."
             )
             submit_button = st.form_submit_button("Get Recommendations")
 
@@ -741,9 +741,9 @@ else:
                 investment_amount = st.number_input(
                     "Investment Amount ($)",
                     min_value=0.0,
-                    value=10000.0,
+                    value=500.0,
                     step=100.0,
-                    help="Enter the amount you wish to invest (e.g., 5000.0).",
+                    help="Enter the amount you wish to invest (e.g., 500.0).",
                     key="agent_amount"
                 )
                 submit_button = st.form_submit_button("Execute Agent-Based Trade")
@@ -766,71 +766,81 @@ else:
                         with st.spinner("Generating trade recommendation..."):
                             result = run_workflow(preferences, st.session_state.user_id)
                         if result["recommendations"]:
-                            st.success("Generated trade recommendation!")
+                            st.success("Generated trade recommendations!")
                             logger.info(f"Agent-based trade recommendations: {result['recommendations']}")
+                            strategist = StrategistAgent()
                             executor = ExecutorAgent()
-                            recommendation = result["recommendations"][0]
-                            trade = executor.execute_trade(recommendation, st.session_state.user_id)
-                            for attempt in range(3):
-                                try:
-                                    quote = finnhub_client.quote(trade["symbol"])
-                                    trade["price"] = float(quote.get("c", 0.0))
-                                    update_stock_price_in_db(trade["symbol"], quote)
-                                    break
-                                except Exception as e:
-                                    if "429" in str(e):
-                                        logger.warning(f"Rate limit for {trade['symbol']}, retrying in {10 * (2 ** attempt)}s")
-                                        time.sleep(10 * (2 ** attempt))
-                                        if attempt == 2:
-                                            logger.error(f"Rate limit exceeded for {trade['symbol']}, falling back to DB")
-                                            db_quote = get_stock_price_from_db(trade["symbol"])
-                                            if db_quote:
-                                                trade["price"] = db_quote["c"]
-                                            else:
-                                                raise Exception("No price available")
-                                    else:
-                                        raise
-                            trade["id"] = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
-                            trade["timestamp"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-                            trade["amount"] = float(trade["price"]) * float(trade["quantity"])
-                            if trade["amount"] <= st.session_state.balance or trade["trade_type"] == "sell":
+                            # Select the best recommendation
+                            recommendation = strategist.select_best_recommendation(
+                                result["recommendations"],
+                                preferences,
+                                result.get("market_data", [])  # Pass market_data if available
+                            )
+                            if not recommendation:
+                                st.error("No suitable recommendation selected. Possible issues: API errors or rate limits.")
+                                logger.warning("No recommendation selected by StrategistAgent")
+                            else:
+                                trade = executor.execute_trade(recommendation, st.session_state.user_id)
                                 for attempt in range(3):
                                     try:
-                                        if add_trade(st.session_state.user_id, trade):
-                                            if trade["trade_type"] == "buy":
-                                                st.session_state.balance = float(st.session_state.balance - trade["amount"])
-                                            else:
-                                                st.session_state.balance = float(st.session_state.balance + trade["amount"])
-                                            update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
-                                            st.success(f"Agent executed trade: {trade['trade_type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
-                                            logger.info(f"Agent trade saved: {trade['symbol']}, ${trade['amount']}, {trade['trade_type']}")
-                                            break
-                                        else:
-                                            st.error("Failed to save trade")
-                                            logger.error(f"Failed to save agent-based trade for {trade['symbol']}: add_trade returned False")
-                                            break
-                                    except mysql.connector.errors.IntegrityError as e:
-                                        logger.error(f"IntegrityError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
-                                        if attempt < 2:
-                                            logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
-                                            time.sleep(1)
-                                            continue
-                                        st.error(f"Failed to save trade: Database integrity error")
-                                        break
-                                    except mysql.connector.errors.DatabaseError as e:
-                                        logger.error(f"DatabaseError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
-                                        if attempt < 2:
-                                            logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
-                                            time.sleep(1)
-                                            continue
-                                        st.error(f"Failed to save trade: Database error")
+                                        quote = finnhub_client.quote(trade["symbol"])
+                                        trade["price"] = float(quote.get("c", 0.0))
+                                        update_stock_price_in_db(trade["symbol"], quote)
                                         break
                                     except Exception as e:
-                                        logger.error(f"Unexpected error in agent-based add_trade (attempt {attempt + 1}): {str(e)}")
-                                        st.error(f"Failed to save trade: Unexpected error")
-                                        break
-                            else:
-                                st.error("Insufficient balance")
+                                        if "429" in str(e):
+                                            logger.warning(f"Rate limit for {trade['symbol']}, retrying in {10 * (2 ** attempt)}s")
+                                            time.sleep(10 * (2 ** attempt))
+                                            if attempt == 2:
+                                                logger.error(f"Rate limit exceeded for {trade['symbol']}, falling back to DB")
+                                                db_quote = get_stock_price_from_db(trade["symbol"])
+                                                if db_quote:
+                                                    trade["price"] = db_quote["c"]
+                                                else:
+                                                    raise Exception("No price available")
+                                        else:
+                                            raise
+                                trade["id"] = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+                                trade["timestamp"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                                trade["amount"] = float(trade["price"]) * float(trade["quantity"])
+                                if trade["amount"] <= st.session_state.balance or trade["trade_type"] == "sell":
+                                    for attempt in range(3):
+                                        try:
+                                            if add_trade(st.session_state.user_id, trade):
+                                                if trade["trade_type"] == "buy":
+                                                    st.session_state.balance = float(st.session_state.balance - trade["amount"])
+                                                else:
+                                                    st.session_state.balance = float(st.session_state.balance + trade["amount"])
+                                                update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
+                                                st.success(f"Agent executed trade: {trade['trade_type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
+                                                logger.info(f"Agent trade saved: {trade['symbol']}, ${trade['amount']}, {trade['trade_type']}")
+                                                break
+                                            else:
+                                                st.error("Failed to save trade")
+                                                logger.error(f"Failed to save agent-based trade for {trade['symbol']}: add_trade returned False")
+                                                break
+                                        except mysql.connector.errors.IntegrityError as e:
+                                            logger.error(f"IntegrityError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                            if attempt < 2:
+                                                logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
+                                                time.sleep(1)
+                                                continue
+                                            st.error(f"Failed to save trade: Database integrity error")
+                                            break
+                                        except mysql.connector.errors.DatabaseError as e:
+                                            logger.error(f"DatabaseError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
+                                            if attempt < 2:
+                                                logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
+                                                time.sleep(1)
+                                                continue
+                                            st.error(f"Failed to save trade: Database error")
+                                            break
+                                        except Exception as e:
+                                            logger.error(f"Unexpected error in agent-based add_trade (attempt {attempt + 1}): {str(e)}")
+                                            st.error(f"Failed to save trade: Unexpected error")
+                                            break
+                                else:
+                                    st.error("Insufficient balance")
                         else:
                             logger.warning("No recommendations available for trading")
                             st.error("No recommendations available for trading. Possible issues: API errors or rate limits.")

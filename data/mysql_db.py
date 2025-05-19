@@ -1,17 +1,25 @@
 import mysql.connector
-from utils.config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE
+# from utils.config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE
+from utils.config import AZURE_USER, AZURE_PASSWORD, AZURE_HOSTNAME, AZURE_PORT, AZURE_DATABASE, AZURE_SSL_CA
 from utils.logger import logger
 import json
 import uuid
 
 def get_db_connection():
     try:
-        connection = mysql.connector.connect(
-            host=MYSQL_HOST,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            database=MYSQL_DATABASE
-        )
+        # connection = mysql.connector.connect(
+        #     host=MYSQL_HOST,
+        #     user=MYSQL_USER,
+        #     password=MYSQL_PASSWORD,
+        #     database=MYSQL_DATABASE
+        # )
+        connection =  mysql.connector.connect(
+            user=AZURE_USER, 
+            password=AZURE_PASSWORD,
+            host=AZURE_HOSTNAME,
+            port=AZURE_PORT, 
+            database=AZURE_DATABASE, 
+            ssl_ca=AZURE_SSL_CA,ssl_verify_cert=True)
         return connection
     except Exception as e:
         logger.error(f"MySQL connection failed: {str(e)}")

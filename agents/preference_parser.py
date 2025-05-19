@@ -24,8 +24,9 @@ class PreferenceParserAgent:
             raise
 
     def parse_preferences(self, text: str) -> dict:
+        logger.debug()
         prompt = PromptTemplate(
-            input_variables=["text"],
+            input_variables=text,
             template="""
 You are an expert investment advisor tasked with generating a complete investment persona based on user input. The persona must include exactly the following fields:
 - risk_appetite: Must be one of 'low', 'medium', 'high'.
@@ -44,7 +45,7 @@ You are an expert investment advisor tasked with generating a complete investmen
    - Time: '1-3 years', 'short-term' → 'short'; '3-7 years' → 'medium'; '7+ years', 'long-term' → 'long'; else 'medium'.
    - Amount: Extract any numeric value with '$' or 'dollars' (e.g., '$5000' → 5000.0); else 10000.0.
    - Style: 'value' → 'value'; 'growth' → 'growth'; 'index', 'passive' → 'index'; else 'index'.
-3. If a field is unclear, use these defaults:
+3. ONLY IF THE FIELDS ARE NOT AVAILABLE , use these defaults:
    - risk_appetite: 'medium'
    - investment_goals: 'growth'
    - time_horizon: 'medium'

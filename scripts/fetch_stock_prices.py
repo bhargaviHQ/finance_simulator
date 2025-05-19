@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 from cachetools import TTLCache
 from pathlib import Path
 
+from utils.config import AZURE_USER, AZURE_PASSWORD, AZURE_HOSTNAME, AZURE_PORT, AZURE_DATABASE, AZURE_SSL_CA
+
 # Ensure logs directory exists
 LOG_DIR = Path("finance_simulator/logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -49,12 +51,19 @@ def get_db_connection(attempts=3, delay=5):
     """Establish MySQL database connection with retries."""
     for attempt in range(attempts):
         try:
-            conn = mysql.connector.connect(
-                host=MYSQL_HOST,
-                user=MYSQL_USER,
-                password=MYSQL_PASSWORD,
-                database=MYSQL_DATABASE
-            )
+            # conn = mysql.connector.connect(
+            #     host=MYSQL_HOST,
+            #     user=MYSQL_USER,
+            #     password=MYSQL_PASSWORD,
+            #     database=MYSQL_DATABASE
+            # )
+            conn =  mysql.connector.connect(
+                user=AZURE_USER, 
+                password=AZURE_PASSWORD,
+                host=AZURE_HOSTNAME,
+                port=AZURE_PORT, 
+                database=AZURE_DATABASE, 
+                ssl_ca=AZURE_SSL_CA, ssl_verify_cert=True)
             logger.debug("Database connection established")
             return conn
         except Error as e:
