@@ -762,15 +762,37 @@ else:
                             "investment_style": investment_style
                         }
                         logger.info(f"Agent-based trade preferences: {preferences}")
-                        st.info("Fetching stock data, financials, and news sentiment...")
+                        #st.info("Fetching stock data, financials, and news sentiment...")
                         with st.spinner("Generating trade recommendation..."):
-                            result = run_workflow(preferences, st.session_state.user_id)
+                            # Create a placeholder for agent activity
+                            with st.expander("Agent Activity", expanded=True):
+
+                                activity_placeholder = st.empty()
+                                activity_messages = ["Starting analysis..."]
+                                activity_placeholder.markdown("\n\n".join(activity_messages))
+                                time.sleep(2)
+
+                                activity_messages.append("Market Analyst is reviewing financial data, including cash flows, income statements, and balance sheets...")
+                                activity_placeholder.markdown("\n\n".join(activity_messages))
+                                time.sleep(1) 
+
+                                result = run_workflow(preferences, st.session_state.user_id)
+                                
+                                # Update with recommendation generation status
+                                if result["recommendations"]:
+                                    activity_messages.append(f"Strategist generated {len(result['recommendations'])} recommendations based on your preferences.")
+                                else:
+                                    activity_messages.append("No recommendations generated due to data issues.")
+                                activity_placeholder.markdown("\n\n".join(f"- {msg}" for msg in activity_messages))                        
                         if result["recommendations"]:
                             st.success("Generated trade recommendations!")
                             logger.info(f"Agent-based trade recommendations: {result['recommendations']}")
                             strategist = StrategistAgent()
                             executor = ExecutorAgent()
                             # Select the best recommendation
+                            with st.expander("Agent Activity", expanded=True):
+                                activity_messages.append("Strategist is selecting the best recommendation...")
+                                activity_placeholder.markdown("\n\n".join(activity_messages))
                             recommendation = strategist.select_best_recommendation(
                                 result["recommendations"],
                                 preferences,
@@ -780,6 +802,20 @@ else:
                                 st.error("No suitable recommendation selected. Possible issues: API errors or rate limits.")
                                 logger.warning("No recommendation selected by StrategistAgent")
                             else:
+                                # Display selected recommendation in a formatted way
+                                with st.expander("Selected Recommendation", expanded=True):
+                                    activity_messages.append("Strategist is selecting the best recommendation...")
+                                    activity_placeholder.markdown("\n\n".join(activity_messages))
+                                    #activity_placeholder.markdown("Strategist selected a recommendation for trading.")
+                                    st.markdown(f"""
+                                    **{recommendation['Symbol']} - {recommendation['Company']}**
+                                    - Action: {recommendation['Action']}
+                                    - Quantity: {recommendation['Quantity']} shares
+                                    - Reason: {recommendation['Reason']}
+                                    - Caution: {recommendation['Caution']}
+                                    - News Sentiment: {recommendation['NewsSentiment']}
+                                    - Score: {recommendation['Score']}
+                                    """)
                                 trade = executor.execute_trade(recommendation, st.session_state.user_id)
                                 for attempt in range(3):
                                     try:

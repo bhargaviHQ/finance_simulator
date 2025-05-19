@@ -31,7 +31,7 @@ class StrategistAgent:
             try:
                 logger.info(f"Attempt {attempt + 1}: Generating recommendations with preferences: {preferences}")
                 prompt = f"""
-You are a stock market expert. Generate up to 3 stock recommendations based on:
+You are a stock market expert. Generate up to 3 to 5 stock recommendations based on:
 - User Preferences: {preferences}
 - Market Data: {market_data}
 
