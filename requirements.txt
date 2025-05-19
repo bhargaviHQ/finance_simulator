@@ -1,1 +1,12 @@
-
+streamlit
+langchain>=0.2.16
+langgraph>=0.2.14
+langchain-groq>=0.1.9
+finnhub-python
+newsapi-python
+mysql-connector-python
+pandas
+numpy
+pydantic
+python-dotenv
+bcrypt
