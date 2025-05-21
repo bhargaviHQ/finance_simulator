@@ -38,6 +38,9 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
+certi_base64.txt
+graph_def.py
+visualize_graph.py
 .DS_STORE
 .streamlit
 .streamlit/secrets.toml
