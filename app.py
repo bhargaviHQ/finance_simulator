@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import finnhub
+import pytz
 from decimal import Decimal
 from cachetools import TTLCache
 import time
@@ -292,16 +293,26 @@ def get_stock_price_from_db(symbol: str) -> dict:
         result = cursor.fetchone()
         cursor.close()
         conn.close()
-        if result and result["last_updated"] >= datetime.now(timezone.utc) - timedelta(hours=1):
-            logger.info(f"Fetched recent price for {symbol} from DB")
-            return {
-                "o": result["open_price"],
-                "c": result["current_price"],
-                "h": result["high_price"],
-                "l": result["low_price"],
-                "pc": result["close_price"]
-            }
-        logger.info(f"No recent price for {symbol} in DB")
+
+        if result:
+            last_updated = result["last_updated"]
+            if last_updated:
+                # If last_updated is naive, assume it's in UTC and make it offset-aware
+                if last_updated.tzinfo is None:
+                    last_updated = pytz.timezone("UTC").localize(last_updated)
+                # Compare with current UTC time minus 1 hour
+                if last_updated >= datetime.now(timezone.utc) - timedelta(hours=1):
+                    logger.info(f"Fetched recent price for {symbol} from DB")
+                    return {
+                        "o": result["open_price"],
+                        "c": result["current_price"],
+                        "h": result["high_price"],
+                        "l": result["low_price"],
+                        "pc": result["close_price"]
+                    }
+            logger.info(f"No recent or valid price for {symbol} in DB")
+        else:
+            logger.info(f"No price data found for {symbol} in DB")
         return None
     except Exception as e:
         logger.error(f"Failed to fetch price from DB for {symbol}: {str(e)}")
