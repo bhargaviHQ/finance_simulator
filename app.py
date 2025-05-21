@@ -20,7 +20,6 @@ from gamification.virtual_currency import get_balance, add_trade, get_portfolio
 from data.mysql_db import get_db_connection
 import requests
 import json
-
 # Project setup
 project_root = str(Path(__file__).parent)
 if project_root not in sys.path:
