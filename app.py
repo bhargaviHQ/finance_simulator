@@ -26,7 +26,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Page configuration
-st.set_page_config(page_title="📈 Finance Simulator", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="💡 ThinkInvest", layout="wide", initial_sidebar_state="expanded")
 
 # Fetching API Keys
 NEWSAPI_KEY = st.secrets["NEWSAPI_KEY"]
@@ -384,7 +384,7 @@ if "authenticated" not in st.session_state:
 
 # Authentication UI
 if not st.session_state.authenticated:
-    st.markdown("<h1 class='header'>📈 Finance Simulator</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='header'>💡 ThinkInvest </h1>", unsafe_allow_html=True)
     tab1, tab2 = st.tabs(["🔐 Sign In", "✨ Sign Up"])
     
     with tab1:

@@ -42,8 +42,9 @@ certi_base64.txt
 graph_def.py
 visualize_graph.py
 .DS_STORE
-.streamlit
 .streamlit/secrets.toml
+utils/DigiCertGlobalRootCA.crt.pem
+visual_nodes.py
 # Visual Studio 2015/2017 cache/options directory
 .vs/
 # Uncomment if you have tasks that create the project's static files in wwwroot
