@@ -2,6 +2,7 @@ from data.mysql_db import get_db_connection
 from utils.logger import logger
 import mysql.connector
 from datetime import datetime
+import decimal
 
 def get_balance(user_id: str) -> float:
     try:
@@ -25,14 +26,23 @@ def add_trade(user_id: str, trade: dict) -> bool:
             logger.error(f"Missing trade keys: {missing_keys}, Trade: {trade}")
             return False
         
+        # Convert numeric values to float
+        try:
+            trade["amount"] = float(trade["amount"])
+            trade["price"] = float(trade["price"])
+            trade["quantity"] = float(trade["quantity"])
+        except (ValueError, TypeError, decimal.InvalidOperation) as e:
+            logger.error(f"Invalid numeric values in trade: {str(e)}")
+            return False
+        
         # Validate values
-        if not isinstance(trade["amount"], (int, float)) or trade["amount"] <= 0:
+        if trade["amount"] <= 0:
             logger.error(f"Invalid amount: {trade['amount']}")
             return False
-        if not isinstance(trade["price"], (int, float)) or trade["price"] <= 0:
+        if trade["price"] <= 0:
             logger.error(f"Invalid price: {trade['price']}")
             return False
-        if not isinstance(trade["quantity"], (int, float)) or trade["quantity"] <= 0:
+        if trade["quantity"] <= 0:
             logger.error(f"Invalid quantity: {trade['quantity']}")
             return False
         if trade["trade_type"] not in ["buy", "sell"]:
@@ -72,7 +82,7 @@ def add_trade(user_id: str, trade: dict) -> bool:
         ))
 
         # Update user balance
-        balance_change = - trade["amount"] if trade["trade_type"] == "buy" else trade["amount"]
+        balance_change = -trade["amount"] if trade["trade_type"] == "buy" else trade["amount"]
         cursor.execute("""
             UPDATE users 
             SET balance = balance + %s 

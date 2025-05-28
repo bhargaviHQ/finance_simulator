@@ -20,6 +20,7 @@ from gamification.virtual_currency import get_balance, add_trade, get_portfolio
 from data.mysql_db import get_db_connection
 import requests
 import json
+import decimal
 # Project setup
 project_root = str(Path(__file__).parent)
 if project_root not in sys.path:
@@ -595,6 +596,14 @@ else:
                     step=100.0,
                     help="Enter the amount you wish to invest (e.g., 500.0)."
                 )
+                
+                # Add text input for additional details
+                additional_details = st.text_area(
+                    "Additional Details",
+                    placeholder="Enter any additional details about your investment preferences, goals, or constraints...",
+                    help="Provide more context about your investment strategy, specific sectors you're interested in, or any other relevant information."
+                )
+                
                 submit_button = st.form_submit_button("Get Recommendations")
 
             if submit_button:
@@ -607,7 +616,8 @@ else:
                         "investment_goals": investment_goals,
                         "time_horizon": time_horizon,
                         "investment_amount": float(investment_amount),
-                        "investment_style": investment_style
+                        "investment_style": investment_style,
+                        "additional_details": additional_details
                     }
                     st.session_state.preferences = preferences
                     logger.info(f"Submitted preferences: {preferences}")
@@ -620,15 +630,36 @@ else:
                         "Investment Amount": f"${preferences['investment_amount']:.2f}",
                         "Investment Style": preferences["investment_style"]
                     }
+                    if additional_details:
+                        prefs_display["Additional Details"] = additional_details
                     st.table(pd.DataFrame([prefs_display]))
                     
-                    st.info("Fetching stock data, financials, and news sentiment...")
+                    st.info("Starting investment analysis...")
                     logger.info("Starting recommendation workflow")
-                    with st.spinner("Generating recommendations..."):
+                    
+                    # Create a placeholder for reasoning steps
+                    reasoning_placeholder = st.empty()
+                    current_steps = []
+                    
+                    with st.spinner("Analyzing investment scenario..."):
                         result = run_workflow(preferences, st.session_state.user_id)
+                        
+                        # Display reasoning steps in real-time
+                        if result.get("reasoning_steps"):
+                            for step in result["reasoning_steps"]:
+                                current_steps.append(step)
+                                reasoning_placeholder.markdown("**Analysis Progress:**\n" + "\n".join(f"- {s}" for s in current_steps))
+                                time.sleep(0.5)  # Add a small delay for visual effect
+                    
                     if result["recommendations"]:
-                        st.success("Generated personalized recommendations!")
-                        logger.info(f"Generated recommendations: {result['recommendations']}")
+                        st.success("Analysis complete!")
+                        
+                        # Display market insights if available
+                        if result.get("market_insights"):
+                            st.markdown("<h3 style='color: #ffffff;'>Market Insights</h3>", unsafe_allow_html=True)
+                            st.markdown(result["market_insights"])
+                            st.markdown("---")
+                        
                         st.markdown("<h3 style='color: #ffffff;'>Your Stock Recommendations</h3>", unsafe_allow_html=True)
                         for rec in result["recommendations"]:
                             with st.expander(f"{rec['Symbol']} - {rec['Company']}"):
@@ -640,7 +671,7 @@ else:
                                 st.markdown(f"**Score**: {rec['Score']}")
                     else:
                         logger.warning("No recommendations generated")
-                        st.error("No recommendations generated Possible issues: invalid data, API errors, or rate limits.")
+                        st.error("No recommendations generated. Possible issues: invalid data, API errors, or rate limits.")
                         st.info("Check finance_simulator/logs/app.log for details.")
 
         elif page == "Trade":
@@ -761,6 +792,12 @@ else:
                         help="Enter the amount you wish to invest (e.g., 500.0).",
                         key="agent_amount"
                     )
+                    additional_preferences = st.text_area(
+                        "Additional Preferences",
+                        placeholder="Enter any additional preferences or requirements (e.g., 'Only tech stocks', 'Focus on renewable energy', 'Avoid high volatility stocks')",
+                        help="Specify any additional trading preferences, sector focus, or specific requirements.",
+                        key="agent_additional_prefs"
+                    )
                     submit_button = st.form_submit_button("Execute Agent-Based Trade")
 
                 if submit_button:
@@ -774,130 +811,176 @@ else:
                                 "investment_goals": investment_goals,
                                 "time_horizon": time_horizon,
                                 "investment_amount": float(investment_amount),
-                                "investment_style": investment_style
+                                "investment_style": investment_style,
+                                "additional_preferences": additional_preferences.strip() if additional_preferences else ""
                             }
                             logger.info(f"Agent-based trade preferences: {preferences}")
-                            with st.spinner("Generating trade recommendation..."):
-                                # Create a placeholder for agent activity
-                                with st.expander("Agent Activity", expanded=True):
-                                    activity_placeholder = st.empty()
-                                    activity_messages = ["Starting analysis..."]
-                                    activity_placeholder.markdown("\n\n".join(activity_messages))
-                                    time.sleep(2)
-
-                                    activity_messages.append("Market Analyst is reviewing financial data, including cash flows, income statements, and balance sheets...")
-                                    activity_placeholder.markdown("\n\n".join(activity_messages))
-                                    time.sleep(1) 
-
-                                    result = run_workflow(preferences, st.session_state.user_id)
-                                    
-                                    # Update with recommendation generation status
-                                    if result["recommendations"]:
-                                        activity_messages.append(f"Strategist generated {len(result['recommendations'])} recommendations based on your preferences.")
-                                    else:
-                                        activity_messages.append("No recommendations generated due to data issues.")
-                                    activity_placeholder.markdown("\n\n".join(f"- {msg}" for msg in activity_messages))                        
+                            
+                            # Create a placeholder for reasoning steps
+                            reasoning_placeholder = st.empty()
+                            current_steps = []
+                            
+                            with st.spinner("Analyzing trade scenario..."):
+                                result = run_workflow(preferences, st.session_state.user_id, is_trade=True)
+                                
+                                # Display reasoning steps in real-time
+                                if result.get("reasoning_steps"):
+                                    for step in result["reasoning_steps"]:
+                                        current_steps.append(step)
+                                        reasoning_placeholder.markdown("**Analysis Progress:**\n" + "\n".join(f"- {s}" for s in current_steps))
+                                        time.sleep(0.5)  # Add a small delay for visual effect
+                            
                             if result["recommendations"]:
-                                st.success("Generated trade recommendations!")
-                                logger.info(f"Agent-based trade recommendations: {result['recommendations']}")
-                                strategist = StrategistAgent()
-                                executor = ExecutorAgent()
+                                st.success("Analysis complete!")
+                                
+                                # Display market insights
+                                if result.get("market_insights"):
+                                    st.markdown("<h3 style='color: #ffffff;'>Market Analysis</h3>", unsafe_allow_html=True)
+                                    st.markdown(result["market_insights"])
+                                    st.markdown("---")
+                                
                                 # Select the best recommendation
-                                with st.expander("Agent Activity", expanded=True):
-                                    activity_messages.append("Strategist is selecting the best recommendation...")
-                                    activity_placeholder.markdown("\n\n".join(activity_messages))
-                                recommendation = strategist.select_best_recommendation(
-                                    result["recommendations"],
-                                    preferences,
-                                    result.get("market_data", [])  # Pass market_data if available
-                                )
-                                if not recommendation:
-                                    st.error("No suitable recommendation selected. Possible issues: API errors or rate limits.")
-                                    logger.warning("No recommendation selected by StrategistAgent")
-                                else:
-                                    # Display selected recommendation in a formatted way
-                                    with st.expander("Selected Recommendation", expanded=True):
-                                        activity_messages.append("Strategist is selecting the best recommendation...")
-                                        activity_placeholder.markdown("\n\n".join(activity_messages))
-                                        st.markdown(f"""
-                                        **{recommendation['Symbol']} - {recommendation['Company']}**
-                                        - Action: {recommendation['Action']}
-                                        - Quantity: {recommendation['Quantity']} shares
-                                        - Reason: {recommendation['Reason']}
-                                        - Caution: {recommendation['Caution']}
-                                        - News Sentiment: {recommendation['NewsSentiment']}
-                                        - Score: {recommendation['Score']}
-                                        """)
-                                    trade = executor.execute_trade(recommendation, st.session_state.user_id)
-                                    for attempt in range(3):
-                                        try:
-                                            quote = finnhub_client.quote(trade["symbol"])
-                                            trade["price"] = float(quote.get("c", 0.0))
-                                            update_stock_price_in_db(trade["symbol"], quote)
-                                            break
-                                        except Exception as e:
-                                            if "429" in str(e):
-                                                logger.warning(f"Rate limit for {trade['symbol']}, retrying in {10 * (2 ** attempt)}s")
-                                                time.sleep(10 * (2 ** attempt))
-                                                if attempt == 2:
-                                                    logger.error(f"Rate limit exceeded for {trade['symbol']}, falling back to DB")
-                                                    db_quote = get_stock_price_from_db(trade["symbol"])
-                                                    if db_quote:
-                                                        trade["price"] = db_quote["c"]
-                                                    else:
-                                                        raise Exception("No price available")
-                                            else:
-                                                raise
-                                    trade["id"] = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
-                                    trade["timestamp"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-                                    trade["amount"] = float(trade["price"]) * float(trade["quantity"])
-                                    if trade["amount"] <= st.session_state.balance or trade["trade_type"] == "sell":
+                                recommendation = result["recommendations"][0]  # Take the highest scored recommendation
+                                
+                                # Display selected recommendation
+                                st.markdown("<h3 style='color: #ffffff;'>Agent's Trade Analysis</h3>", unsafe_allow_html=True)
+                                with st.expander("Trade Details", expanded=True):
+                                    st.markdown(f"""
+                                    **{recommendation['Symbol']} - {recommendation['Company']}**
+                                    - Action: {recommendation['Action']}
+                                    - Quantity: {recommendation['Quantity']:.2f} shares
+                                    - Current Price: ${recommendation['CurrentPrice']:.2f}
+                                    - Total Cost: ${recommendation['TotalCost']:.2f}
+                                    - Investment Amount Available: ${preferences['investment_amount']:.2f}
+                                    - Reason: {recommendation['Reason']}
+                                    - Caution: {recommendation['Caution']}
+                                    - News Sentiment: {recommendation['NewsSentiment']}
+                                    - Score: {recommendation['Score']}
+                                    
+                                    **Investment Analysis:**
+                                    - Utilization: {(recommendation['TotalCost'] / preferences['investment_amount'] * 100):.1f}% of available investment amount
+                                    - Remaining Budget: ${preferences['investment_amount'] - recommendation['TotalCost']:.2f}
+                                    """)
+                                
+                                # Automatically execute the trade
+                                try:
+                                    logger.info(f"Starting automated trade execution for {recommendation['Symbol']}")
+                                    
+                                    # Get current price
+                                    quote = finnhub_client.quote(recommendation["Symbol"])
+                                    price = float(quote["c"])
+                                    quantity = float(recommendation["Quantity"])
+                                    amount = price * quantity
+                                    
+                                    logger.info(f"Trade details - Symbol: {recommendation['Symbol']}, Price: {price}, Quantity: {quantity}, Amount: {amount}")
+                                    
+                                    if amount <= st.session_state.balance or recommendation["Action"].lower() == "sell":
+                                        # Create trade record
+                                        trade_id = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+                                        trade = {
+                                            "id": trade_id,
+                                            "symbol": recommendation["Symbol"],
+                                            "quantity": quantity,
+                                            "price": price,
+                                            "trade_type": recommendation["Action"].lower(),
+                                            "amount": amount,
+                                            "user_id": st.session_state.user_id,
+                                            "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                                        }
+                                        
+                                        logger.info(f"Attempting to add trade to database: {trade}")
+                                        
+                                        # Try to execute trade up to 3 times
+                                        success = False
                                         for attempt in range(3):
                                             try:
                                                 if add_trade(st.session_state.user_id, trade):
+                                                    success = True
+                                                    logger.info(f"Trade successfully added to database: {trade_id}")
+                                                    
+                                                    # Update session balance
                                                     if trade["trade_type"] == "buy":
-                                                        st.session_state.balance = float(st.session_state.balance - trade["amount"])
+                                                        st.session_state.balance = float(st.session_state.balance - amount)
                                                     else:
-                                                        st.session_state.balance = float(st.session_state.balance + trade["amount"])
+                                                        st.session_state.balance = float(st.session_state.balance + amount)
+                                                    
+                                                    # Update leaderboard
                                                     update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
-                                                    st.success(f"Agent executed trade: {trade['trade_type'].capitalize()} {trade['quantity']} shares of {trade['symbol']} at ${trade['price']:.2f} (Total: ${trade['amount']:.2f})")
-                                                    logger.info(f"Agent trade saved: {trade['symbol']}, ${trade['amount']}, {trade['trade_type']}")
+                                                    logger.info(f"Updated leaderboard for user {st.session_state.user_id}")
+                                                    
+                                                    # Show success message with next steps
+                                                    total_value = float(trade['quantity']) * float(trade['price'])
+                                                    st.success(f"""
+                                                    🎯 **Trade Successfully Executed!**
+                                                    
+                                                    **Trade Details:**
+                                                    - Action: {trade['trade_type'].upper()}
+                                                    - Stock: {trade['symbol']}
+                                                    - Shares: {trade['quantity']:.2f}
+                                                    - Price per Share: ${trade['price']:.2f}
+                                                    - Total Value: ${total_value:.2f}
+                                                    - New Balance: ${st.session_state.balance:.2f}
+                                                    
+                                                    **Next Steps:**
+                                                    1. Click on the "Portfolio" tab in the navigation menu to view your updated holdings
+                                                    2. You can track the performance of this trade in your portfolio
+                                                    3. The trade has been recorded and will be reflected in your account history
+                                                    """)
+                                                    
+                                                    # Update stock price in DB
+                                                    update_stock_price_in_db(trade['symbol'], {
+                                                        "o": quote["o"],
+                                                        "c": quote["c"],
+                                                        "h": quote["h"],
+                                                        "l": quote["l"],
+                                                        "pc": quote["pc"]
+                                                    })
+                                                    logger.info(f"Updated stock price in DB for {trade['symbol']}")
                                                     break
                                                 else:
-                                                    st.error("Failed to save trade")
-                                                    logger.error(f"Failed to save agent-based trade for {trade['symbol']}: add_trade returned False")
-                                                    break
+                                                    logger.warning(f"add_trade returned False on attempt {attempt + 1}")
+                                                    if attempt == 2:
+                                                        st.error("Agent was unable to execute the trade after multiple attempts. Please try again or use manual trading.")
+                                                        logger.error(f"Failed to save trade for {trade['symbol']}: add_trade returned False after 3 attempts")
                                             except mysql.connector.errors.IntegrityError as e:
-                                                logger.error(f"IntegrityError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
-                                                if attempt < 2:
-                                                    logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
-                                                    time.sleep(1)
-                                                    continue
-                                                st.error(f"Failed to save trade: Database integrity error")
-                                                break
+                                                logger.error(f"IntegrityError in add_trade (attempt {attempt + 1}): {str(e)}")
+                                                if attempt == 2:
+                                                    st.error("Database error occurred while executing the trade. Please try again.")
                                             except mysql.connector.errors.DatabaseError as e:
-                                                logger.error(f"DatabaseError in agent-based add_trade (attempt {attempt + 1}): {str(e)} (SQLSTATE: {e.sqlstate}, errno: {e.errno})")
-                                                if attempt < 2:
-                                                    logger.warning(f"Retrying agent-based trade save for {trade['symbol']}...")
-                                                    time.sleep(1)
-                                                    continue
-                                                st.error(f"Failed to save trade: Database error")
-                                                break
+                                                logger.error(f"DatabaseError in add_trade (attempt {attempt + 1}): {str(e)}")
+                                                if attempt == 2:
+                                                    st.error("Database error occurred while executing the trade. Please try again.")
                                             except Exception as e:
-                                                logger.error(f"Unexpected error in agent-based add_trade (attempt {attempt + 1}): {str(e)}")
-                                                st.error(f"Failed to save trade: Unexpected error")
-                                                break
+                                                logger.error(f"Unexpected error in add_trade (attempt {attempt + 1}): {str(e)}")
+                                                if attempt == 2:
+                                                    st.error("An unexpected error occurred while executing the trade. Please try again.")
+                                            
+                                            if not success and attempt < 2:
+                                                time.sleep(1)
+                                                logger.info(f"Retrying trade execution, attempt {attempt + 2}")
                                     else:
-                                        st.error("Insufficient balance")
+                                        st.error(f"""
+                                        ❌ **Insufficient Balance**
+                                        
+                                        Required Amount: ${amount:.2f}
+                                        Your Balance: ${st.session_state.balance:.2f}
+                                        
+                                        Please adjust the trade amount or add funds to your account.
+                                        """)
+                                        logger.error(f"Insufficient balance: {amount} > {st.session_state.balance}")
+                                except Exception as e:
+                                    logger.error(f"Failed to execute trade: {str(e)}")
+                                    st.error(f"""
+                                    ❌ **Trade Execution Failed**
+                                    
+                                    An error occurred while executing the trade: {str(e)}
+                                    Please try again or use manual trading if the issue persists.
+                                    """)
                             else:
-                                logger.warning("No recommendations available for trading")
-                                st.error("No recommendations available for trading. Possible issues: API errors or rate limits.")
-                                st.info("Check finance_simulator/logs/app.log for details.")
+                                st.warning("No valid trade recommendations generated. Please try again.")
                     except Exception as e:
                         logger.error(f"Agent-based trade failed: {str(e)}")
-                        st.error(f"Agent-based trade failed: {str(e)}")
-                        if "429" in str(e):
-                            st.warning("API rate limit exceeded. Please wait a few minutes and try again.")
+                        st.error(f"Analysis failed: {str(e)}")
 
         elif page == "Portfolio":
             st.markdown("<h2 class='subheader'>💼 Your Portfolio</h2>", unsafe_allow_html=True)
@@ -937,41 +1020,47 @@ else:
                         transaction_history = {}
                         for trade in trades:
                             symbol = trade["symbol"]
-                            if not all(isinstance(trade.get(key), (int, float, Decimal)) and trade.get(key) > 0 for key in ["amount", "price"]):
-                                logger.warning(f"Skipping invalid trade for {symbol}: amount={trade['amount']}, price={trade['price']}")
-                                continue
-                            quantity = float(trade["amount"]) / float(trade["price"]) if trade["amount"] and trade["price"] else 0.0
-                            if symbol not in holdings:
-                                holdings[symbol] = {"quantity": 0, "total_cost": 0, "buy_trades": 0, "realized_profit": 0}
-                                transaction_history[symbol] = []
-                            
                             try:
+                                # Convert Decimal to float for calculations
+                                trade_amount = float(trade["amount"]) if isinstance(trade["amount"], (Decimal, float, int)) else 0.0
+                                trade_price = float(trade["price"]) if isinstance(trade["price"], (Decimal, float, int)) else 0.0
+                                
+                                if trade_amount <= 0 or trade_price <= 0:
+                                    logger.warning(f"Skipping invalid trade for {symbol}: amount={trade_amount}, price={trade_price}")
+                                    continue
+                                
+                                quantity = trade_amount / trade_price
+                                
+                                if symbol not in holdings:
+                                    holdings[symbol] = {"quantity": 0.0, "total_cost": 0.0, "buy_trades": 0, "realized_profit": 0.0}
+                                    transaction_history[symbol] = []
+                                
                                 if trade["trade_type"] == "buy":
                                     holdings[symbol]["quantity"] += quantity
-                                    holdings[symbol]["total_cost"] += trade["amount"]
+                                    holdings[symbol]["total_cost"] += trade_amount
                                     holdings[symbol]["buy_trades"] += 1
-                                else:
+                                else:  # sell
                                     if holdings[symbol]["quantity"] >= quantity:
-                                        avg_buy_price = float(holdings[symbol]["total_cost"]) / float(holdings[symbol]["quantity"]) if holdings[symbol]["quantity"] > 0 else float(trade["price"])
+                                        avg_buy_price = holdings[symbol]["total_cost"] / holdings[symbol]["quantity"] if holdings[symbol]["quantity"] > 0 else trade_price
                                         holdings[symbol]["quantity"] -= quantity
                                         holdings[symbol]["total_cost"] -= avg_buy_price * quantity
                                         holdings[symbol]["buy_trades"] = max(0, holdings[symbol]["buy_trades"] - 1)
-                                        realized_profit = (float(trade["price"]) - avg_buy_price) * quantity
+                                        realized_profit = (trade_price - avg_buy_price) * quantity
                                         holdings[symbol]["realized_profit"] += realized_profit
                                     else:
                                         logger.warning(f"Cannot sell {quantity} shares of {symbol}: only {holdings[symbol]['quantity']} available")
                                         continue
-                            except Exception as e:
+                                
+                                transaction_history[symbol].append({
+                                    "trade_type": trade["trade_type"].capitalize(),
+                                    "Quantity": float(quantity),
+                                    "Price ($)": float(trade_price),
+                                    "Amount ($)": float(trade_amount),
+                                    "Timestamp": trade["timestamp"]
+                                })
+                            except (TypeError, ValueError, decimal.InvalidOperation) as e:
                                 logger.error(f"Error processing trade for {symbol}: {str(e)}")
                                 continue
-                            
-                            transaction_history[symbol].append({
-                                "trade_type": trade["trade_type"].capitalize(),
-                                "Quantity": quantity,
-                                "Price ($)": trade["price"],
-                                "Amount ($)": trade["amount"],
-                                "Timestamp": trade["timestamp"]
-                            })
 
                         stock_data = fetch_stock_prices()
                         portfolio_data = []
@@ -1010,28 +1099,32 @@ else:
                                                         break
                                     
                                     avg_buy_price = float(data["total_cost"]) / float(data["quantity"]) if data["quantity"] > 0 else 0
-                                    unrealized_profit = (current_price - avg_buy_price) * data["quantity"]
+                                    unrealized_profit = (float(current_price) - avg_buy_price) * float(data["quantity"])
                                     portfolio_data.append({
                                         "Symbol": symbol,
-                                        "Quantity": data["quantity"],
-                                        "Avg Buy Price ($)": avg_buy_price,
-                                        "Current Price ($)": current_price,
-                                        "Unrealized Profit ($)": unrealized_profit,
-                                        "Realized Profit ($)": data["realized_profit"]
+                                        "Quantity": float(data["quantity"]),
+                                        "Avg Buy Price ($)": float(avg_buy_price),
+                                        "Current Price ($)": float(current_price),
+                                        "Unrealized Profit ($)": float(unrealized_profit),
+                                        "Realized Profit ($)": float(data["realized_profit"])
                                     })
                                 except Exception as e:
                                     logger.error(f"Failed to fetch price for {symbol}: {str(e)}")
                                     portfolio_data.append({
                                         "Symbol": symbol,
-                                        "Quantity": data["quantity"],
+                                        "Quantity": float(data["quantity"]),
                                         "Avg Buy Price ($)": float(data["total_cost"]) / float(data["quantity"]) if data["quantity"] > 0 else 0,
-                                        "Current Price ($)": stock_data.get(symbol, {"current_price": 0.0})["current_price"],
+                                        "Current Price ($)": float(stock_data.get(symbol, {"current_price": 0.0})["current_price"]),
                                         "Unrealized Profit ($)": 0.0,
-                                        "Realized Profit ($)": data["realized_profit"]
+                                        "Realized Profit ($)": float(data["realized_profit"])
                                     })
 
                         if portfolio_data:
-                            st.table(pd.DataFrame(portfolio_data))
+                            # Format the numeric columns
+                            df = pd.DataFrame(portfolio_data)
+                            for col in ["Quantity", "Avg Buy Price ($)", "Current Price ($)", "Unrealized Profit ($)", "Realized Profit ($)"]:
+                                df[col] = df[col].apply(lambda x: f"{float(x):,.2f}")
+                            st.table(df)
                         else:
                             st.info("No active holdings in your portfolio.")
 
