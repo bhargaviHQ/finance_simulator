@@ -165,72 +165,203 @@ class ReasoningAgent:
             logger.error(f"Failed to fetch stock prices for thinking process: {str(e)}")
             stock_data = {}
 
+        # Convert and validate investment amount
         investment_amount = self._convert_to_float(preferences.get('investment_amount', 0.0))
         
-        thinking_prompt = f"""You are an expert investment advisor. Think through the investment scenario step by step, sharing your detailed inner monologue with specific numerical analysis.
+        # Handle risk profile
+        risk_profile = preferences.get('risk_profile', 'moderate').lower()
+        
+        # Convert time horizon string to years
+        time_horizon_input = str(preferences.get('time_horizon', 'medium')).lower()
+        time_horizon_mapping = {
+            'short': 2,
+            'medium': 5,
+            'long': 10,
+            'very_long': 20
+        }
+        try:
+            # First try to convert directly to int
+            time_horizon = int(time_horizon_input)
+        except ValueError:
+            # If that fails, use the mapping
+            time_horizon = time_horizon_mapping.get(time_horizon_input, 5)  # Default to 5 years if not found
+        
+        # Validate time horizon is within reasonable bounds
+        time_horizon = max(1, min(30, time_horizon))  # Limit between 1 and 30 years
+        
+        # Calculate risk-adjusted returns based on time horizon
+        # Shorter time horizons should be more conservative
+        if time_horizon <= 2:  # Short term
+            conservative_return = 0.04  # 4% annual return
+            moderate_return = 0.06     # 6% annual return
+            aggressive_return = 0.08   # 8% annual return
+        elif time_horizon <= 5:  # Medium term
+            conservative_return = 0.06  # 6% annual return
+            moderate_return = 0.08     # 8% annual return
+            aggressive_return = 0.12   # 12% annual return
+        else:  # Long term
+            conservative_return = 0.07  # 7% annual return
+            moderate_return = 0.10     # 10% annual return
+            aggressive_return = 0.15   # 15% annual return
+        
+        # Calculate future values under different scenarios
+        conservative_fv = investment_amount * (1 + conservative_return) ** time_horizon
+        moderate_fv = investment_amount * (1 + moderate_return) ** time_horizon
+        aggressive_fv = investment_amount * (1 + aggressive_return) ** time_horizon
+        
+        # Calculate risk-based allocation limits adjusted for time horizon
+        base_allocations = {
+            'conservative': 0.15,  # 15% max for conservative
+            'moderate': 0.25,     # 25% max for moderate
+            'aggressive': 0.35    # 35% max for aggressive
+        }
+        
+        # Adjust allocations based on time horizon
+        time_horizon_factor = min(time_horizon / 10, 1.5)  # Cap at 1.5x increase
+        max_single_stock = base_allocations.get(risk_profile, 0.25) * time_horizon_factor
+        max_single_stock = min(max_single_stock, 0.4)  # Cap at 40% maximum
+        
+        max_single_stock_amount = investment_amount * max_single_stock
+        
+        # Define base volatility levels
+        base_volatility = {
+            'conservative': {
+                'daily': 0.01,    # 1% daily volatility
+                'monthly': 0.03,  # 3% monthly volatility
+                'yearly': 0.10    # 10% yearly volatility
+            },
+            'moderate': {
+                'daily': 0.015,   # 1.5% daily volatility
+                'monthly': 0.05,  # 5% monthly volatility
+                'yearly': 0.15    # 15% yearly volatility
+            },
+            'aggressive': {
+                'daily': 0.02,    # 2% daily volatility
+                'monthly': 0.07,  # 7% monthly volatility
+                'yearly': 0.25    # 25% yearly volatility
+            }
+        }
+        
+        # Get volatility levels for the selected risk profile
+        volatility_levels = base_volatility.get(risk_profile, base_volatility['moderate'])
+        
+        # Calculate risk metrics
+        daily_risk = investment_amount * volatility_levels['daily']
+        monthly_risk = investment_amount * volatility_levels['monthly']
+        yearly_risk = investment_amount * volatility_levels['yearly']
+        max_drawdown = investment_amount * volatility_levels['yearly'] * 1.5
+        
+        # Calculate position sizing tiers
+        core_position = max_single_stock_amount * 0.5     # 50% of max allocation
+        tactical_position = max_single_stock_amount * 0.3  # 30% of max allocation
+        strategic_reserve = max_single_stock_amount * 0.2  # 20% of max allocation
+        
+        thinking_prompt = f"""You are an expert investment advisor. Think through this investment scenario step by step, sharing your detailed inner monologue with specific numerical analysis.
 
 User Preferences: {json.dumps(preferences, indent=2)}
 Available Investment Amount: ${investment_amount:.2f}
+Time Horizon: {time_horizon} years ({time_horizon_input})
 
 Current Market Data:
 {json.dumps({symbol: {"price": data.get("current_price", 0.0)} for symbol, data in stock_data.items()}, indent=2)}
 
-I want you to think through this investment scenario in great detail, sharing your complete thought process with specific numerical calculations and practical considerations. Imagine you're explaining your thinking to a colleague. Consider:
+I want you to think through this investment scenario in great detail, sharing your complete thought process with specific numerical calculations and practical considerations. Format your response as a detailed stream of consciousness, with each thought starting with "🤔 Inner Monologue: ".
+
+Consider and explicitly state your thinking about:
 
 1. Initial Portfolio Analysis:
-   - How many shares of different stocks could we buy with ${investment_amount:.2f}?
-   - What would be the optimal allocation percentages?
-   - How should we divide the investment across different risk levels?
+   - Maximum single stock position: ${max_single_stock_amount:.2f} ({max_single_stock*100:.1f}% of ${investment_amount:.2f})
+   - Risk-adjusted position sizes based on {risk_profile} profile and {time_horizon} year horizon
+   - Time horizon factor: {time_horizon_factor:.2f}x base allocation
 
-2. Risk-Return Calculations:
-   - Calculate potential returns under different scenarios
-   - Analyze historical volatility and price ranges
-   - Consider risk-adjusted return metrics
+2. Risk-Return Projections ({time_horizon} years):
+   - Conservative ({conservative_return*100:.1f}%/year): ${investment_amount:.2f} → ${conservative_fv:.2f}
+   - Moderate ({moderate_return*100:.1f}%/year): ${investment_amount:.2f} → ${moderate_fv:.2f}
+   - Aggressive ({aggressive_return*100:.1f}%/year): ${investment_amount:.2f} → ${aggressive_fv:.2f}
 
-3. Investment Strategy Formation:
-   - Calculate specific position sizes and entry points
-   - Analyze price-to-earnings ratios and other metrics
-   - Consider dollar-cost averaging vs. lump sum investment
+3. Volatility Analysis ({risk_profile} profile):
+   - Daily volatility: ±${daily_risk:.2f} (±{volatility_levels['daily']*100:.1f}% of ${investment_amount:.2f})
+   - Monthly volatility: ±${monthly_risk:.2f} (±{volatility_levels['monthly']*100:.1f}%)
+   - Yearly volatility: ±${yearly_risk:.2f} (±{volatility_levels['yearly']*100:.1f}%)
+   - Maximum drawdown protection: -${max_drawdown:.2f} (-{volatility_levels['yearly']*100*1.5:.1f}%)
 
-4. Market Context & Valuation:
-   - Compare current prices to moving averages
-   - Analyze sector-specific metrics and trends
-   - Calculate relative valuations between similar stocks
-
-5. Practical Implementation:
-   - Calculate exact number of shares for each recommendation
-   - Consider transaction costs and timing
-   - Plan for rebalancing and adjustment triggers
-
-Format your response as a detailed stream of consciousness, with each thought starting with "🤔 Thinking: ".
-Be thorough and include specific numbers, calculations, and percentages in your reasoning.
+4. Position Sizing and Risk Management:
+   - Core position: ${core_position:.2f} (50% of max)
+   - Tactical allocation: ${tactical_position:.2f} (30% of max)
+   - Strategic reserve: ${strategic_reserve:.2f} (20% of max)
+   - Risk per trade: ${investment_amount * 0.02:.2f} (2% rule)
 
 Example format:
-🤔 Thinking: With an investment amount of $10,000 and AAPL trading at $150, we could buy approximately 66 shares. However, given the user's risk profile of 'low', we should probably allocate only 30% ($3,000) to any single stock...
-🤔 Thinking: Looking at the P/E ratios, MSFT at 35x earnings is trading at a premium to the sector average of 28x. This suggests we might want to limit our position size to 20% of the portfolio, or about $2,000...
-🤔 Thinking: The user's time horizon of 5 years means we can withstand some volatility. If we assume a conservative 8% annual return, the $10,000 investment could grow to approximately $14,693 over 5 years...
+🤔 Inner Monologue: Analyzing ${investment_amount:.2f} investment over {time_horizon} years ({time_horizon_input} term). With {risk_profile} risk profile and {time_horizon_factor:.2f}x time horizon factor, maximum single-stock allocation is {max_single_stock*100:.1f}% = ${max_single_stock_amount:.2f}...
 
-Make each thought detailed and complete, explaining your full reasoning process with specific numbers and calculations. Don't just state what you're thinking, but explain WHY you're thinking it and how the numbers support your reasoning.
+🤔 Inner Monologue: Risk analysis for {risk_profile} profile:
+- Daily moves: ${investment_amount:.2f} × ±{volatility_levels['daily']*100:.1f}% = ±${daily_risk:.2f}
+- Monthly swings: ${investment_amount:.2f} × ±{volatility_levels['monthly']*100:.1f}% = ±${monthly_risk:.2f}
+- Yearly volatility: ${investment_amount:.2f} × ±{volatility_levels['yearly']*100:.1f}% = ±${yearly_risk:.2f}
+- Maximum drawdown: ${investment_amount:.2f} × {volatility_levels['yearly']*100*1.5:.1f}% = ${max_drawdown:.2f}
 
-Return ONLY the list of thoughts, no other text."""
+🤔 Inner Monologue: Position sizing for {risk_profile} strategy:
+- Core position: ${core_position:.2f} (50% of max)
+- Tactical allocation: ${tactical_position:.2f} (30% of max)
+- Strategic reserve: ${strategic_reserve:.2f} (20% of max)
+Transaction costs at 0.1% would be ${investment_amount * 0.001:.2f} total.
+
+Make each thought extremely detailed and show your mathematical reasoning. Include:
+- Exact calculations with numbers
+- Percentage breakdowns
+- Risk metrics and volatility measures
+- Price comparisons
+- Historical data analysis
+- Forward projections
+- Transaction cost impact
+- Rebalancing thresholds
+- Position sizing logic
+- Correlation calculations
+- Sector exposure metrics
+- Stop loss and take profit levels
+
+Return ONLY the list of thoughts, with each starting with "🤔 Inner Monologue: " and containing detailed numerical analysis.
+"""
 
         try:
             response = self.llm.invoke(thinking_prompt)
-            thoughts = [line.strip() for line in response.content.split('\n') if line.strip().startswith('🤔')]
-            if not thoughts:
-                return ["🤔 Thinking: Starting detailed investment analysis with numerical calculations..."]
+            # Split response into individual thoughts and clean them up
+            thoughts = [t.strip() for t in response.content.split('🤔 Inner Monologue:') if t.strip()]
             
-            # Ensure we have at least 5 detailed thoughts
-            if len(thoughts) < 5:
-                logger.warning("Generated fewer than 5 thoughts, requesting more detailed analysis")
-                # Try one more time with explicit request for more detail
-                response = self.llm.invoke(thinking_prompt + "\n\nPlease provide at least 5 detailed thoughts with specific numerical analysis.")
-                thoughts = [line.strip() for line in response.content.split('\n') if line.strip().startswith('🤔')]
+            # Format each thought with proper indentation and line breaks
+            formatted_thoughts = []
+            for thought in thoughts:
+                # Clean up any extra whitespace and normalize line breaks
+                lines = [line.strip() for line in thought.split('\n')]
+                lines = [line for line in lines if line]  # Remove empty lines
+                
+                # Format calculations and lists with proper indentation
+                formatted_lines = []
+                for line in lines:
+                    if line.startswith('-') or line.startswith('•'):
+                        # Indent list items and align numbers
+                        formatted_lines.append(f"    {line}")
+                    elif ':' in line and not line.startswith('http'):
+                        # Format key-value pairs
+                        key, value = line.split(':', 1)
+                        formatted_lines.append(f"{key.strip()}: {value.strip()}")
+                    else:
+                        formatted_lines.append(line)
+                
+                # Join lines with proper spacing
+                formatted_thought = '\n'.join(formatted_lines)
+                
+                # Add the thought prefix with proper spacing
+                formatted_thoughts.append(f"🤔 Inner Monologue:\n{formatted_thought}")
             
-            return thoughts
+            # Add extra line break between thoughts for better readability
+            return formatted_thoughts
         except Exception as e:
             logger.error(f"Failed to generate thinking process: {str(e)}")
-            return ["🤔 Thinking: Starting detailed investment analysis with numerical calculations..."]
+            return [
+                "🤔 Inner Monologue:\n    Unable to generate detailed thinking process due to technical error.",
+                "🤔 Inner Monologue:\n    Proceeding with basic analysis based on available data."
+            ]
 
     def analyze_investment_scenario(self, preferences: Dict, is_trade: bool = False) -> Tuple[List[Dict], str, List[str], List[str]]:
         """
