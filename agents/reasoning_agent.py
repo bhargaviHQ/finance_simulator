@@ -339,20 +339,20 @@ Return ONLY the list of thoughts, with each starting with "🤔 Inner Monologue:
                 formatted_lines = []
                 for line in lines:
                     if line.startswith('-') or line.startswith('•'):
-                        # Indent list items and align numbers
-                        formatted_lines.append(f"    {line}")
+                        # Enhanced indentation for list items with better alignment
+                        formatted_lines.append(f"    ➤ {line[1:].strip()}")
                     elif ':' in line and not line.startswith('http'):
-                        # Format key-value pairs
+                        # Enhanced formatting for key-value pairs
                         key, value = line.split(':', 1)
-                        formatted_lines.append(f"{key.strip()}: {value.strip()}")
+                        formatted_lines.append(f"📊 {key.strip()}: {value.strip()}")
                     else:
                         formatted_lines.append(line)
                 
-                # Join lines with proper spacing
+                # Join lines with proper spacing and add decorative elements
                 formatted_thought = '\n'.join(formatted_lines)
                 
-                # Add the thought prefix with proper spacing
-                formatted_thoughts.append(f"🤔 Inner Monologue:\n{formatted_thought}")
+                # Add the thought prefix with enhanced formatting
+                formatted_thoughts.append(f"🤔 Inner Monologue:\n{'='*50}\n{formatted_thought}\n{'='*50}")
             
             # Add extra line break between thoughts for better readability
             return formatted_thoughts
@@ -661,28 +661,32 @@ The response must be a single, valid JSON object that can be parsed by json.load
                     "Score": 0
                 }]
 
-            # Update reasoning steps
+            # Update reasoning steps with enhanced formatting
             reasoning_steps.extend([
-                "✅ Completed initial preference and risk assessment",
-                "✅ Analyzed market conditions and sector performance",
-                f"✅ Generated {len(validated_recommendations)} validated recommendations"
+                "✨ Completed initial preference and risk assessment",
+                "📊 Analyzed market conditions and sector performance",
+                f"🎯 Generated {len(validated_recommendations)} validated recommendations"
             ])
+            
             for rec in validated_recommendations:
                 formatted_output = (
-                        f"🧩 {rec['Company']} ({rec['Symbol']})\n"
-                        f"  - Action: {rec['Action']}\n"
-                        f"  - Current Price: ${rec['CurrentPrice']:.2f}\n"
-                        f"  - Quantity: {rec['Quantity']}\n"
-                        f"  - Total Cost: ${rec['TotalCost']:.2f}\n"
-                        f"  - Reason: {rec['Reason']}\n"
-                        f"  - Caution: {rec['Caution']}\n"
-                        f"  - News Sentiment: {rec['NewsSentiment']}\n"
-                        f"  - Score: {rec['Score']}\n"
-                    )
+                    f"🎯 {rec['Company']} ({rec['Symbol']})\n"
+                    f"{'='*50}\n"
+                    f"  📈 Action: {rec['Action']}\n"
+                    f"  💰 Current Price: ${rec['CurrentPrice']:.2f}\n"
+                    f"  📊 Quantity: {rec['Quantity']}\n"
+                    f"  💵 Total Cost: ${rec['TotalCost']:.2f}\n"
+                    f"  📝 Reason: {rec['Reason']}\n"
+                    f"  ⚠️ Caution: {rec['Caution']}\n"
+                    f"  📰 News Sentiment: {rec['NewsSentiment']}\n"
+                    f"  ⭐ Score: {rec['Score']}/100\n"
+                    f"{'='*50}"
+                )
                 reasoning_steps.append(formatted_output)
+            
             reasoning_steps.extend([
                 "✅ Validated investment amounts and share quantities",
-                "✅ Compiled final market insights and guidance"
+                "🏁 Compiled final market insights and guidance"
             ])
             return validated_recommendations, insights, reasoning_steps, thinking_process
 
@@ -818,36 +822,42 @@ Return ONLY the JSON object, no other text."""
             if is_valid:
                 execution = validation_result.get("execution", {}).get("execution_strategy", {})
                 explanation = f"""🎯 Trade Validation Summary:
-Confidence Score: {validation.get('confidence', 'N/A')}/100
+{'='*50}
+⭐ Confidence Score: {validation.get('confidence', 'N/A')}/100
 
-Primary Reasons:
+📝 Primary Reasons:
 {format_list(validation.get('primary_reasons', []))}
 
-Key Concerns:
+⚠️ Key Concerns:
 {format_list(validation.get('concerns', []))}
 
-Execution Strategy:
+📊 Execution Strategy:
+{'='*30}
 Entry Points:
 {format_list(execution.get('entry_points', []))}
 
-Risk Management:
-• Stop Loss: {execution.get('risk_management', {}).get('stop_loss', 'Not specified')}
-• Take Profit: {execution.get('risk_management', {}).get('take_profit', 'Not specified')}
+🛡️ Risk Management:
+{'='*30}
+➤ Stop Loss: {execution.get('risk_management', {}).get('stop_loss', 'Not specified')}
+➤ Take Profit: {execution.get('risk_management', {}).get('take_profit', 'Not specified')}
 
-Monitoring Points:
-{format_list(execution.get('monitoring', []))}"""
+📈 Monitoring Points:
+{format_list(execution.get('monitoring', []))}
+{'='*50}"""
             else:
                 explanation = f"""❌ Trade Rejected:
+{'='*50}
 
-Reasons:
+❌ Reasons:
 {format_list(validation.get('primary_reasons', ['Invalid trade']))}
 
-Suggested Changes:
-• Quantity: {validation.get('modifications', {}).get('quantity', 'No suggestion')}
-• Timing: {validation.get('modifications', {}).get('timing', 'No suggestion')}
+📝 Suggested Changes:
+➤ Quantity: {validation.get('modifications', {}).get('quantity', 'No suggestion')}
+➤ Timing: {validation.get('modifications', {}).get('timing', 'No suggestion')}
 
-Key Concerns:
-{format_list(validation.get('concerns', []))}"""
+⚠️ Key Concerns:
+{format_list(validation.get('concerns', []))}
+{'='*50}"""
 
             # Clean up the explanation text
             explanation = (explanation
