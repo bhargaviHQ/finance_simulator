@@ -12,6 +12,7 @@ class WorkflowState(TypedDict):
     recommendations: List[Dict]
     market_insights: str
     reasoning_steps: List[str]
+    thinking_process: List[str]
 
 finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
 STOCK_LIST = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META", "JPM", "WMT", "V"]
@@ -27,11 +28,12 @@ def run_workflow(preferences: Dict, user_id: str, is_trade: bool = False) -> Dic
             user_id=user_id,
             recommendations=[],
             market_insights="",
-            reasoning_steps=[]
+            reasoning_steps=[],
+            thinking_process=[]
         )
 
         # Run the analysis
-        recommendations, insights, steps = reasoning_agent.analyze_investment_scenario(
+        recommendations, insights, steps, thinking = reasoning_agent.analyze_investment_scenario(
             preferences,
             is_trade=is_trade
         )
@@ -41,7 +43,8 @@ def run_workflow(preferences: Dict, user_id: str, is_trade: bool = False) -> Dic
             return {
                 "recommendations": [],
                 "market_insights": "Unable to generate recommendations at this time.",
-                "reasoning_steps": steps
+                "reasoning_steps": steps,
+                "thinking_process": thinking
             }
 
         # If this is a trade request, validate the recommendations
@@ -59,7 +62,8 @@ def run_workflow(preferences: Dict, user_id: str, is_trade: bool = False) -> Dic
         return {
             "recommendations": recommendations,
             "market_insights": insights,
-            "reasoning_steps": steps
+            "reasoning_steps": steps,
+            "thinking_process": thinking
         }
 
     except Exception as e:
@@ -67,5 +71,6 @@ def run_workflow(preferences: Dict, user_id: str, is_trade: bool = False) -> Dic
         return {
             "recommendations": [],
             "market_insights": f"Analysis failed: {str(e)}",
-            "reasoning_steps": ["Error occurred during analysis"]
+            "reasoning_steps": ["Error occurred during analysis"],
+            "thinking_process": ["🤔 Thinking: An error occurred during analysis..."]
         }

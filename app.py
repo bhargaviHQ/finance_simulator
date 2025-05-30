@@ -637,43 +637,165 @@ else:
                     st.info("Starting investment analysis...")
                     logger.info("Starting recommendation workflow")
                     
-                    # Create a placeholder for reasoning steps
-                    reasoning_placeholder = st.empty()
-                    current_steps = []
-                    
                     with st.spinner("Analyzing investment scenario..."):
                         result = run_workflow(preferences, st.session_state.user_id)
-                        
-                        # Display reasoning steps in real-time
-                        if result.get("reasoning_steps"):
-                            for step in result["reasoning_steps"]:
-                                current_steps.append(step)
-                                reasoning_placeholder.markdown("**Analysis Progress:**\n" + "\n".join(f"- {s}" for s in current_steps))
-                                time.sleep(0.5)  # Add a small delay for visual effect
                     
                     if result["recommendations"]:
                         st.success("Analysis complete!")
                         
-                        # Display market insights if available
-                        if result.get("market_insights"):
-                            st.markdown("<h3 style='color: #ffffff;'>Market Insights</h3>", unsafe_allow_html=True)
-                            st.markdown(result["market_insights"])
-                            st.markdown("---")
+                        # Display the agent's thinking process first
+                        with st.expander("🧠 Agent's Thought Process", expanded=True):
+                            st.markdown("<h4 style='color: #ffffff;'>Inner Monologue</h4>", unsafe_allow_html=True)
+                            for thought in result.get("thinking_process", []):
+                                st.markdown(f"<div class='thought-bubble'>{thought}</div>", unsafe_allow_html=True)
                         
-                        st.markdown("<h3 style='color: #ffffff;'>Your Stock Recommendations</h3>", unsafe_allow_html=True)
-                        for rec in result["recommendations"]:
-                            with st.expander(f"{rec['Symbol']} - {rec['Company']}"):
-                                st.markdown(f"**Action**: {rec['Action']}")
-                                st.markdown(f"**Quantity**: {rec['Quantity']} shares")
-                                st.markdown(f"**Reason**: {rec['Reason']}")
-                                st.markdown(f"**Caution**: {rec['Caution']}")
-                                st.markdown(f"**News Sentiment**: {rec['NewsSentiment']}")
-                                st.markdown(f"**Score**: {rec['Score']}")
+                        # Display market insights and analysis process in a collapsible section
+                        with st.expander("🔍 Analysis Process", expanded=True):
+                            st.markdown("<h4 style='color: #ffffff;'>Market Analysis & Insights</h4>", unsafe_allow_html=True)
+                            insights_text = result["market_insights"].replace("\n", "<br>")
+                            st.markdown(f"<div class='analysis-box'>{insights_text}</div>", unsafe_allow_html=True)
+                        
+                        # Display analysis steps in a separate collapsible section
+                        with st.expander("📊 Analysis Steps", expanded=True):
+                            st.markdown("<h4 style='color: #ffffff;'>Step-by-Step Analysis</h4>", unsafe_allow_html=True)
+                            for step in result.get("reasoning_steps", []):
+                                if isinstance(step, str):
+                                    if step.startswith("🧩"):  # This is a recommendation detail
+                                        formatted_step = step.replace("\n", "<br>")
+                                        st.markdown(f"<div class='recommendation-box'>{formatted_step}</div>", unsafe_allow_html=True)
+                                    else:
+                                        formatted_step = step.replace("\n", "<br>")
+                                        st.markdown(f"<div class='step-box'>{formatted_step}</div>", unsafe_allow_html=True)
+                        
+                        # Select the best recommendation
+                        recommendation = result["recommendations"][0]  # Take the highest scored recommendation
+                        
+                        # Display selected recommendation
+                        st.markdown("<h3 style='color: #ffffff;'>Agent's Trade Analysis</h3>", unsafe_allow_html=True)
+                        with st.expander("Trade Details", expanded=True):
+                            st.markdown(f"""
+                            **{recommendation['Symbol']} - {recommendation['Company']}**
+                            - Action: {recommendation['Action']}
+                            - Quantity: {recommendation['Quantity']:.2f} shares
+                            - Current Price: ${recommendation['CurrentPrice']:.2f}
+                            - Total Cost: ${recommendation['TotalCost']:.2f}
+                            - Investment Amount Available: ${preferences['investment_amount']:.2f}
+                            - Reason: {recommendation['Reason']}
+                            - Caution: {recommendation['Caution']}
+                            - News Sentiment: {recommendation['NewsSentiment']}
+                            - Score: {recommendation['Score']}
+                            
+                            **Investment Analysis:**
+                            - Utilization: {(recommendation['TotalCost'] / preferences['investment_amount'] * 100):.1f}% of available investment amount
+                            - Remaining Budget: ${preferences['investment_amount'] - recommendation['TotalCost']:.2f}
+                            """)
+                        
+                        # Automatically execute the trade
+                        try:
+                            logger.info(f"Starting automated trade execution for {recommendation['Symbol']}")
+                            
+                            # Get current price
+                            quote = finnhub_client.quote(recommendation["Symbol"])
+                            price = float(quote["c"])
+                            quantity = float(recommendation["Quantity"])
+                            amount = price * quantity
+                            
+                            logger.info(f"Trade details - Symbol: {recommendation['Symbol']}, Price: {price}, Quantity: {quantity}, Amount: {amount}")
+                            
+                            if amount <= st.session_state.balance or recommendation["Action"].lower() == "sell":
+                                # Create trade record
+                                trade_id = f"trade_{st.session_state.user_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+                                trade = {
+                                    "id": trade_id,
+                                    "symbol": recommendation["Symbol"],
+                                    "quantity": quantity,
+                                    "price": price,
+                                    "trade_type": recommendation["Action"].lower(),
+                                    "amount": amount,
+                                    "user_id": st.session_state.user_id,
+                                    "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                                }
+                                
+                                logger.info(f"Attempting to add trade to database: {trade}")
+                                
+                                # Try to execute trade up to 3 times
+                                success = False
+                                for attempt in range(3):
+                                    try:
+                                        if add_trade(st.session_state.user_id, trade):
+                                            success = True
+                                            logger.info(f"Trade successfully added to database: {trade_id}")
+                                            
+                                            # Update session balance
+                                            if trade["trade_type"] == "buy":
+                                                st.session_state.balance = float(st.session_state.balance - amount)
+                                            else:
+                                                st.session_state.balance = float(st.session_state.balance + amount)
+                                            
+                                            # Update leaderboard
+                                            update_leaderboard(st.session_state.user_id, st.session_state.username, st.session_state.balance)
+                                            logger.info(f"Updated leaderboard for user {st.session_state.user_id}")
+                                            
+                                            # Show success message with next steps
+                                            total_value = float(trade['quantity']) * float(trade['price'])
+                                            st.success(f"""
+                                            🎯 **Trade Successfully Executed!**
+                                            
+                                            **Trade Details:**
+                                            - Action: {trade['trade_type'].upper()}
+                                            - Stock: {trade['symbol']}
+                                            - Shares: {trade['quantity']:.2f}
+                                            - Price per Share: ${trade['price']:.2f}
+                                            - Total Value: ${total_value:.2f}
+                                            - New Balance: ${st.session_state.balance:.2f}
+                                            
+                                            **Next Steps:**
+                                            1. Click on the "Portfolio" tab in the navigation menu to view your updated holdings
+                                            2. You can track the performance of this trade in your portfolio
+                                            3. The trade has been recorded and will be reflected in your account history
+                                            """)
+                                            
+                                            # Update stock price in DB
+                                            update_stock_price_in_db(trade['symbol'], {
+                                                "o": quote["o"],
+                                                "c": quote["c"],
+                                                "h": quote["h"],
+                                                "l": quote["l"],
+                                                "pc": quote["pc"]
+                                            })
+                                            logger.info(f"Updated stock price in DB for {trade['symbol']}")
+                                            break
+                                        else:
+                                            logger.warning(f"add_trade returned False on attempt {attempt + 1}")
+                                            if attempt == 2:
+                                                st.error("Agent was unable to execute the trade after multiple attempts. Please try again or use manual trading.")
+                                                logger.error(f"Failed to save trade for {trade['symbol']}: add_trade returned False after 3 attempts")
+                                    except mysql.connector.errors.IntegrityError as e:
+                                        logger.error(f"IntegrityError in add_trade (attempt {attempt + 1}): {str(e)}")
+                                        if attempt == 2:
+                                            st.error("Database error occurred while executing the trade. Please try again.")
+                                    except mysql.connector.errors.DatabaseError as e:
+                                        logger.error(f"DatabaseError in add_trade (attempt {attempt + 1}): {str(e)}")
+                                        if attempt == 2:
+                                            st.error("Database error occurred while executing the trade. Please try again.")
+                                    except Exception as e:
+                                        logger.error(f"Unexpected error in add_trade (attempt {attempt + 1}): {str(e)}")
+                                        if attempt == 2:
+                                            st.error("An unexpected error occurred while executing the trade. Please try again.")
+                                        
+                                    if not success and attempt < 2:
+                                        time.sleep(1)
+                                        logger.info(f"Retrying trade execution, attempt {attempt + 2}")
+                        except Exception as e:
+                            logger.error(f"Failed to execute trade: {str(e)}")
+                            st.error(f"""
+                            ❌ **Trade Execution Failed**
+                            
+                            An error occurred while executing the trade: {str(e)}
+                            Please try again or use manual trading if the issue persists.
+                            """)
                     else:
-                        logger.warning("No recommendations generated")
-                        st.error("No recommendations generated. Possible issues: invalid data, API errors, or rate limits.")
-                        st.info("Check finance_simulator/logs/app.log for details.")
-
+                        st.warning("No valid trade recommendations generated. Please try again.")
         elif page == "Trade":
             st.markdown("<h2 class='subheader'>💹 Trade Stocks</h2>", unsafe_allow_html=True)
             mode = st.radio("Trading Mode", ["Manual", "Agent-Based"])
@@ -816,28 +938,35 @@ else:
                             }
                             logger.info(f"Agent-based trade preferences: {preferences}")
                             
-                            # Create a placeholder for reasoning steps
-                            reasoning_placeholder = st.empty()
-                            current_steps = []
-                            
                             with st.spinner("Analyzing trade scenario..."):
                                 result = run_workflow(preferences, st.session_state.user_id, is_trade=True)
-                                
-                                # Display reasoning steps in real-time
-                                if result.get("reasoning_steps"):
-                                    for step in result["reasoning_steps"]:
-                                        current_steps.append(step)
-                                        reasoning_placeholder.markdown("**Analysis Progress:**\n" + "\n".join(f"- {s}" for s in current_steps))
-                                        time.sleep(0.5)  # Add a small delay for visual effect
                             
                             if result["recommendations"]:
                                 st.success("Analysis complete!")
                                 
-                                # Display market insights
-                                if result.get("market_insights"):
-                                    st.markdown("<h3 style='color: #ffffff;'>Market Analysis</h3>", unsafe_allow_html=True)
-                                    st.markdown(result["market_insights"])
-                                    st.markdown("---")
+                                # Display the agent's thinking process first
+                                with st.expander("🧠 Agent's Thought Process", expanded=True):
+                                    st.markdown("<h4 style='color: #ffffff;'>Inner Monologue</h4>", unsafe_allow_html=True)
+                                    for thought in result.get("thinking_process", []):
+                                        st.markdown(f"<div class='thought-bubble'>{thought}</div>", unsafe_allow_html=True)
+                                
+                                # Display market insights and analysis process in a collapsible section
+                                with st.expander("🔍 Analysis Process", expanded=True):
+                                    st.markdown("<h4 style='color: #ffffff;'>Market Analysis & Insights</h4>", unsafe_allow_html=True)
+                                    insights_text = result["market_insights"].replace("\n", "<br>")
+                                    st.markdown(f"<div class='analysis-box'>{insights_text}</div>", unsafe_allow_html=True)
+                                
+                                # Display analysis steps in a separate collapsible section
+                                with st.expander("📊 Analysis Steps", expanded=True):
+                                    st.markdown("<h4 style='color: #ffffff;'>Step-by-Step Analysis</h4>", unsafe_allow_html=True)
+                                    for step in result.get("reasoning_steps", []):
+                                        if isinstance(step, str):
+                                            if step.startswith("🧩"):  # This is a recommendation detail
+                                                formatted_step = step.replace("\n", "<br>")
+                                                st.markdown(f"<div class='recommendation-box'>{formatted_step}</div>", unsafe_allow_html=True)
+                                            else:
+                                                formatted_step = step.replace("\n", "<br>")
+                                                st.markdown(f"<div class='step-box'>{formatted_step}</div>", unsafe_allow_html=True)
                                 
                                 # Select the best recommendation
                                 recommendation = result["recommendations"][0]  # Take the highest scored recommendation
@@ -1169,3 +1298,74 @@ else:
             except Exception as e:
                 logger.error(f"Failed to load leaderboard: {str(e)}")
                 st.error(f"Failed to load leaderboard: {str(e)}")
+
+# Add custom CSS for better formatting
+st.markdown("""
+<style>
+.thought-bubble {
+    background-color: #2d2d2d;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+    font-size: 16px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.analysis-box {
+    background-color: #2d2d2d;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+    font-size: 16px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.step-box {
+    background-color: #2d2d2d;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+    font-size: 16px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.recommendation-box {
+    background-color: #1e1e1e;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+    font-size: 14px;
+    font-family: monospace;
+    white-space: pre-wrap;
+}
+
+/* Fix bullet point alignment */
+.step-box ul, .analysis-box ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+/* Ensure consistent bullet points */
+.step-box li, .analysis-box li {
+    list-style-type: none;
+    position: relative;
+    padding-left: 20px;
+}
+
+.step-box li:before, .analysis-box li:before {
+    content: "•";
+    position: absolute;
+    left: 0;
+}
+
+/* Fix line breaks */
+br {
+    display: block;
+    margin: 5px 0;
+    content: "";
+}
+</style>
+""", unsafe_allow_html=True)

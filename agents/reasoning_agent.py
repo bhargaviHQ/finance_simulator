@@ -7,6 +7,7 @@ import json
 import time
 import decimal
 import math
+import re
 
 class ReasoningAgent:
     def __init__(self):
@@ -72,32 +73,178 @@ class ReasoningAgent:
             return json.loads(response)
         except json.JSONDecodeError:
             try:
-                # Look for JSON-like content between triple backticks
-                import re
-                json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group(1))
+                # Clean up common issues in the response
+                cleaned_response = response
                 
-                # Look for content between curly braces
-                json_match = re.search(r'\{.*\}', response, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group(0))
+                # Remove any markdown code block markers
+                cleaned_response = re.sub(r'```json\s*|\s*```', '', cleaned_response)
                 
-                # If still no valid JSON, create a basic structure
+                # Try to find the first complete JSON object
+                start_idx = cleaned_response.find('{')
+                if start_idx != -1:
+                    # Track brackets to find matching end
+                    stack = []
+                    in_string = False
+                    escape_char = False
+                    
+                    for i in range(start_idx, len(cleaned_response)):
+                        char = cleaned_response[i]
+                        
+                        # Handle escape characters
+                        if char == '\\' and not escape_char:
+                            escape_char = True
+                            continue
+                        
+                        # Handle strings
+                        if char == '"' and not escape_char:
+                            in_string = not in_string
+                        
+                        # Track brackets only when not in a string
+                        if not in_string:
+                            if char == '{':
+                                stack.append(char)
+                            elif char == '}':
+                                if stack:
+                                    stack.pop()
+                                    # If we've found the matching end brace
+                                    if not stack:
+                                        try:
+                                            json_str = cleaned_response[start_idx:i+1]
+                                            parsed = json.loads(json_str)
+                                            logger.info("Successfully parsed JSON after cleanup")
+                                            return parsed
+                                        except json.JSONDecodeError:
+                                            logger.warning("Failed to parse extracted JSON object")
+                                            # Continue searching in case there are more JSON objects
+                                            continue
+                        
+                        escape_char = False
+                
+                # If we haven't found a valid JSON object yet, try a more aggressive cleanup
+                # Remove all whitespace and newlines outside of strings
+                cleaned_response = re.sub(r'\s+(?=(?:[^"]*"[^"]*")*[^"]*$)', '', cleaned_response)
+                
+                # Try one more time with the aggressively cleaned response
+                try:
+                    start_idx = cleaned_response.find('{')
+                    end_idx = cleaned_response.rfind('}')
+                    if start_idx != -1 and end_idx != -1:
+                        json_str = cleaned_response[start_idx:end_idx + 1]
+                        return json.loads(json_str)
+                except:
+                    pass
+                
+                # If all else fails, create a basic structure
                 logger.warning("Could not parse JSON response, creating basic structure")
-                return {"analysis": response}
+                return {
+                    "error": "Failed to parse response",
+                    "raw_response": response,
+                    "recommendations": [],
+                    "insights": "Analysis failed to generate valid insights.",
+                    "market_analysis": {},
+                    "investment_strategy": {}
+                }
             except Exception as e:
                 logger.error(f"Failed to parse JSON response: {str(e)}")
-                return {"error": "Failed to parse response", "raw_response": response}
+                return {
+                    "error": "Failed to parse response",
+                    "raw_response": response,
+                    "recommendations": [],
+                    "insights": "Analysis failed to generate valid insights.",
+                    "market_analysis": {},
+                    "investment_strategy": {}
+                }
 
-    def analyze_investment_scenario(self, preferences: Dict, is_trade: bool = False) -> Tuple[List[Dict], str, List[str]]:
+    def _get_thinking_process(self, preferences: Dict) -> List[str]:
+        """Capture the model's inner thought process with detailed numerical analysis."""
+        # Get current price data for calculations
+        try:
+            from scripts.fetch_stock_prices import fetch_stock_prices
+            stock_data = fetch_stock_prices()
+        except Exception as e:
+            logger.error(f"Failed to fetch stock prices for thinking process: {str(e)}")
+            stock_data = {}
+
+        investment_amount = self._convert_to_float(preferences.get('investment_amount', 0.0))
+        
+        thinking_prompt = f"""You are an expert investment advisor. Think through the investment scenario step by step, sharing your detailed inner monologue with specific numerical analysis.
+
+User Preferences: {json.dumps(preferences, indent=2)}
+Available Investment Amount: ${investment_amount:.2f}
+
+Current Market Data:
+{json.dumps({symbol: {"price": data.get("current_price", 0.0)} for symbol, data in stock_data.items()}, indent=2)}
+
+I want you to think through this investment scenario in great detail, sharing your complete thought process with specific numerical calculations and practical considerations. Imagine you're explaining your thinking to a colleague. Consider:
+
+1. Initial Portfolio Analysis:
+   - How many shares of different stocks could we buy with ${investment_amount:.2f}?
+   - What would be the optimal allocation percentages?
+   - How should we divide the investment across different risk levels?
+
+2. Risk-Return Calculations:
+   - Calculate potential returns under different scenarios
+   - Analyze historical volatility and price ranges
+   - Consider risk-adjusted return metrics
+
+3. Investment Strategy Formation:
+   - Calculate specific position sizes and entry points
+   - Analyze price-to-earnings ratios and other metrics
+   - Consider dollar-cost averaging vs. lump sum investment
+
+4. Market Context & Valuation:
+   - Compare current prices to moving averages
+   - Analyze sector-specific metrics and trends
+   - Calculate relative valuations between similar stocks
+
+5. Practical Implementation:
+   - Calculate exact number of shares for each recommendation
+   - Consider transaction costs and timing
+   - Plan for rebalancing and adjustment triggers
+
+Format your response as a detailed stream of consciousness, with each thought starting with "🤔 Thinking: ".
+Be thorough and include specific numbers, calculations, and percentages in your reasoning.
+
+Example format:
+🤔 Thinking: With an investment amount of $10,000 and AAPL trading at $150, we could buy approximately 66 shares. However, given the user's risk profile of 'low', we should probably allocate only 30% ($3,000) to any single stock...
+🤔 Thinking: Looking at the P/E ratios, MSFT at 35x earnings is trading at a premium to the sector average of 28x. This suggests we might want to limit our position size to 20% of the portfolio, or about $2,000...
+🤔 Thinking: The user's time horizon of 5 years means we can withstand some volatility. If we assume a conservative 8% annual return, the $10,000 investment could grow to approximately $14,693 over 5 years...
+
+Make each thought detailed and complete, explaining your full reasoning process with specific numbers and calculations. Don't just state what you're thinking, but explain WHY you're thinking it and how the numbers support your reasoning.
+
+Return ONLY the list of thoughts, no other text."""
+
+        try:
+            response = self.llm.invoke(thinking_prompt)
+            thoughts = [line.strip() for line in response.content.split('\n') if line.strip().startswith('🤔')]
+            if not thoughts:
+                return ["🤔 Thinking: Starting detailed investment analysis with numerical calculations..."]
+            
+            # Ensure we have at least 5 detailed thoughts
+            if len(thoughts) < 5:
+                logger.warning("Generated fewer than 5 thoughts, requesting more detailed analysis")
+                # Try one more time with explicit request for more detail
+                response = self.llm.invoke(thinking_prompt + "\n\nPlease provide at least 5 detailed thoughts with specific numerical analysis.")
+                thoughts = [line.strip() for line in response.content.split('\n') if line.strip().startswith('🤔')]
+            
+            return thoughts
+        except Exception as e:
+            logger.error(f"Failed to generate thinking process: {str(e)}")
+            return ["🤔 Thinking: Starting detailed investment analysis with numerical calculations..."]
+
+    def analyze_investment_scenario(self, preferences: Dict, is_trade: bool = False) -> Tuple[List[Dict], str, List[str], List[str]]:
         """
         Perform a detailed analysis of the investment scenario with step-by-step reasoning.
-        Returns: (recommendations, insights, reasoning_steps)
+        Returns: (recommendations, insights, reasoning_steps, thinking_process)
         """
         reasoning_steps = []
+        thinking_process = self._get_thinking_process(preferences)
         
         try:
+            # Fetch current stock data
+            from scripts.fetch_stock_prices import fetch_stock_prices
+            stock_data = fetch_stock_prices()
+            
             # Add investment amount to prompt for better quantity calculation
             investment_amount = self._convert_to_float(preferences.get('investment_amount', 0.0))
             reasoning_steps.append(f"Investment amount specified: ${investment_amount:.2f}")
@@ -105,122 +252,179 @@ class ReasoningAgent:
             # Combined analysis prompt that includes initial analysis, market context, and recommendations
             comprehensive_prompt = f"""You are an expert investment advisor performing a detailed market analysis and generating recommendations.
 
-Context:
-User Preferences: {json.dumps(preferences, indent=2)}
-Investment Budget: ${investment_amount:.2f} (This is the maximum amount available for investment)
+IMPORTANT: You must return ONLY a valid JSON object with no additional text, comments, or explanations.
+ANY TEXT OUTSIDE THE JSON OBJECT WILL CAUSE ERRORS.
 
-STRICT STOCK SELECTION RULES:
-You MUST ONLY select from these exact stock symbols - no exceptions:
-{', '.join(self.ALLOWED_STOCKS)}
+Input Parameters:
+- User Preferences: {json.dumps(preferences, indent=2)}
+- Investment Budget: ${investment_amount:.2f}
+- Current Market Data: {json.dumps({symbol: {"price": data.get("current_price", 0.0)} for symbol, data in stock_data.items()}, indent=2)}
+- Allowed Stocks: {json.dumps(self.ALLOWED_STOCKS)}
 
-Each recommended stock MUST be from this list. Any other stocks will be rejected.
-
-QUANTITY CALCULATION RULES:
-1. Calculate the optimal number of shares based on the current stock price and investment amount
-2. The total cost (quantity * price) MUST NOT exceed the investment amount
-3. Aim to use a significant portion of the investment amount while staying within limits
-4. Consider stock price volatility when deciding quantity
-5. Round quantity to 2 decimal places for fractional shares
-
-Task 1 - Initial Analysis:
-Analyze the user preferences and provide a detailed assessment in this format:
+Required JSON Structure:
 {{
-    "risk_profile": {{
-        "assessment": "Detailed risk assessment",
-        "alignment": "How preferences align with risk",
-        "concerns": ["List of risk-related concerns"]
+    "market_analysis": {{
+        "market_summary": {{
+            "current_state": "Detailed market state with specific metrics and trends",
+            "key_indices": {{
+                "SP500": "Current level, YTD performance, key support/resistance levels, and trend analysis",
+                "NASDAQ": "Current level, YTD performance, sector weightings, and momentum indicators",
+                "VIX": "Current level, historical context, and volatility trend analysis",
+                "market_breadth": "Advance/decline ratio, new highs vs lows, and market internals",
+                "sector_rotation": "Current sector leadership and rotation trends"
+            }},
+            "market_sentiment": "Detailed sentiment analysis with specific indicators (Fear & Greed, Put/Call ratio, etc.)",
+            "technical_overview": {{
+                "short_term_trend": "Detailed analysis of 10-20 day price action",
+                "medium_term_trend": "50-day moving average analysis and market structure",
+                "long_term_trend": "200-day moving average and major trend analysis",
+                "momentum_indicators": "RSI, MACD, and other key technical signals",
+                "volume_analysis": "Trading volume trends and significant levels"
+            }}
+        }},
+        "economic_indicators": {{
+            "gdp_growth": "Latest GDP figures with detailed breakdown and forward projections",
+            "inflation_rate": "CPI, PPI, and core inflation metrics with trend analysis",
+            "interest_rates": "Federal funds rate, yield curve analysis, and future rate expectations",
+            "employment_data": "Latest employment statistics, wage growth, and labor market trends",
+            "consumer_metrics": {{
+                "consumer_confidence": "Latest readings and trend analysis",
+                "retail_sales": "Recent data and forward-looking indicators",
+                "housing_market": "Housing starts, sales, and price trends",
+                "personal_income": "Income growth and spending patterns"
+            }},
+            "business_metrics": {{
+                "manufacturing": "PMI and industrial production data",
+                "services": "Services PMI and business activity indices",
+                "corporate_profits": "Earnings trends and projections",
+                "capex_trends": "Capital expenditure and investment trends"
+            }}
+        }},
+        "sector_analysis": {{
+            "technology": {{
+                "performance": "Detailed YTD and relative performance metrics",
+                "key_drivers": ["Specific growth catalysts", "Market share analysis", "Innovation trends"],
+                "risks": ["Detailed regulatory risks", "Competition analysis", "Market-specific challenges"],
+                "opportunities": ["Growth areas", "Merger & acquisition activity", "New market potential"],
+                "subsector_trends": ["Software", "Hardware", "Semiconductors", "Cloud Computing"],
+                "valuation_metrics": {{
+                    "average_pe": "Sector P/E ratio compared to historical average",
+                    "revenue_growth": "Sector revenue growth rate",
+                    "profit_margins": "Sector profit margin trends",
+                    "cash_flow_metrics": "Free cash flow yield and trends"
+                }}
+            }},
+            "healthcare": {{
+                "performance": "Detailed YTD and relative performance metrics",
+                "key_drivers": ["Demographics", "Innovation", "Policy changes", "Market expansion"],
+                "risks": ["Regulatory environment", "Pricing pressures", "Research & development risks"],
+                "opportunities": ["New treatments", "Market expansion", "Technology integration"],
+                "subsector_trends": ["Biotech", "Pharmaceuticals", "Medical Devices", "Healthcare Services"],
+                "valuation_metrics": {{
+                    "average_pe": "Sector P/E ratio compared to historical average",
+                    "revenue_growth": "Sector revenue growth rate",
+                    "profit_margins": "Sector profit margin trends",
+                    "cash_flow_metrics": "Free cash flow yield and trends"
+                }}
+            }}
+        }},
+        "global_factors": {{
+            "geopolitical_events": ["Major political developments", "Trade relations", "Regional conflicts"],
+            "currency_markets": {{
+                "dollar_strength": "USD index trend analysis",
+                "major_pairs": "EUR, JPY, GBP movement analysis",
+                "impact": "Effect on corporate earnings"
+            }},
+            "commodity_markets": {{
+                "oil_prices": "Current trends and impact analysis",
+                "precious_metals": "Gold and silver price trends",
+                "industrial_metals": "Copper and other base metals analysis"
+            }},
+            "international_markets": {{
+                "emerging_markets": "Performance and trend analysis",
+                "developed_markets": "Major market performance",
+                "global_trade": "Trade volume and trend analysis"
+            }}
+        }}
     }},
-    "timeline_analysis": {{
-        "implications": "Investment timeline implications",
-        "milestones": ["Key timeline considerations"],
-        "constraints": ["Any timing constraints"]
+    "investment_strategy": {{
+        "allocation_plan": {{
+            "recommended_splits": "Detailed allocation percentages with rationale",
+            "rationale": "Comprehensive strategy explanation with market context",
+            "risk_management": "Specific risk mitigation strategies and stop-loss levels"
+        }},
+        "entry_strategy": {{
+            "timing": "Specific entry points with technical levels",
+            "position_sizing": "Detailed position size calculations",
+            "price_targets": "Multiple price targets with rationale"
+        }},
+        "portfolio_impact": {{
+            "diversification": "Impact on portfolio diversification",
+            "risk_metrics": "Beta, Sharpe ratio, and other risk measures",
+            "correlation_analysis": "Correlation with existing holdings"
+        }}
     }},
-    "goal_alignment": {{
-        "primary_goals": ["List of main goals"],
-        "strategy_fit": "How well current market aligns",
-        "adjustments": ["Needed adjustments"]
-    }}
+    "recommendations": [
+        {{
+            "Symbol": "string (must be from allowed list)",
+            "Company": "string",
+            "Action": "Buy or Sell",
+            "Quantity": "number",
+            "CurrentPrice": "number",
+            "TotalCost": "number",
+            "Reason": "string",
+            "Caution": "string",
+            "NewsSentiment": "Positive/Negative/Neutral",
+            "Score": "number (0-100)",
+            "Metrics": {{
+                "PE_Ratio": "string",
+                "PEG_Ratio": "string",
+                "Debt_to_Equity": "string",
+                "Quick_Ratio": "string",
+                "Profit_Margin": "string",
+                "Revenue_Growth": "string"
+            }},
+            "Technical_Analysis": {{
+                "MA_Status": "string",
+                "RSI": "string",
+                "Volume_Analysis": "string",
+                "Support_Resistance": ["string"]
+            }},
+            "Analyst_Consensus": {{
+                "Buy_Ratings": "number",
+                "Hold_Ratings": "number",
+                "Sell_Ratings": "number",
+                "Price_Targets": {{
+                    "Low": "number",
+                    "High": "number",
+                    "Average": "number"
+                }}
+            }},
+            "Risk_Assessment": {{
+                "Volatility": "Beta and historical volatility metrics",
+                "Liquidity": "Average daily volume and spread analysis",
+                "Company_Specific": ["Key company risks"],
+                "Industry_Position": "Market share and competitive analysis"
+            }}
+        }}
+    ],
+    "insights": "Comprehensive market insight summary with specific data points and actionable conclusions"
 }}
 
-Task 2 - Market Analysis:
-Based on the initial analysis, evaluate current market conditions in this format:
-{{
-    "market_overview": {{
-        "sentiment": "Overall market sentiment",
-        "trends": ["Key market trends"],
-        "economic_indicators": ["Important indicators"]
-    }},
-    "sector_analysis": {{
-        "strong_sectors": ["List with reasons"],
-        "weak_sectors": ["List with reasons"],
-        "opportunities": ["Emerging opportunities"]
-    }},
-    "risk_factors": {{
-        "market_risks": ["Current market risks"],
-        "sector_risks": ["Sector-specific risks"],
-        "mitigation_strategies": ["Risk mitigation approaches"]
-    }}
-}}
+REQUIREMENTS:
+1. Return ONLY the JSON object above
+2. Do not include any text before or after the JSON
+3. Do not use markdown code blocks
+4. Ensure all numeric fields are actual numbers, not strings
+5. Ensure all arrays are properly closed
+6. Ensure all objects have matching braces
+7. Use only the allowed stock symbols
+8. Include exactly 3 recommendations
+9. Format all currency values as numbers without $ signs
+10. Use proper JSON syntax with double quotes for strings
 
-Task 3 - Stock Recommendations:
-Generate EXACTLY 3 recommendations using ONLY these allowed symbols: {', '.join(self.ALLOWED_STOCKS)}
-For each recommendation:
-1. Get current stock price
-2. Calculate maximum possible shares = investment_amount / current_price
-3. Determine optimal quantity considering:
-   - Market volatility
-   - Risk profile
-   - Investment goals
-   - Round to 2 decimal places
-
-Format each recommendation as:
-[
-    {{
-        "Symbol": "MUST be one of the allowed symbols listed above",
-        "Company": "Full company name",
-        "Action": "Buy or Sell",
-        "Quantity": "Calculated optimal number of shares based on investment amount",
-        "CurrentPrice": "Current stock price",
-        "TotalCost": "Quantity * CurrentPrice (must be <= investment_amount)",
-        "Reason": "Clear, specific reasoning including quantity justification",
-        "Caution": "Specific risk factors",
-        "NewsSentiment": "Positive/Negative/Neutral",
-        "Score": "0-100 numeric score"
-    }}
-]
-
-CRITICAL: Each Symbol MUST be one of: {', '.join(self.ALLOWED_STOCKS)}
-Any other symbols will be rejected automatically.
-
-Task 4 - Market Insights:
-Provide a comprehensive market insight summary focusing on:
-1. How the recommendations align with user preferences
-2. Current market opportunities and challenges
-3. Specific action steps and monitoring points
-4. Risk management strategies
-
-Return your complete analysis as a JSON object with these exact keys:
-{{
-    "initial_analysis": Task 1 result,
-    "market_analysis": Task 2 result,
-    "recommendations": Task 3 result,
-    "insights": "Task 4 result as a formatted string"
-}}
-
-FINAL VALIDATION CHECKLIST:
-1. Each recommended Symbol MUST be from: {', '.join(self.ALLOWED_STOCKS)}
-2. Exactly 3 recommendations required
-3. All numeric values must be valid numbers
-4. For each recommendation:
-   - Quantity * CurrentPrice <= {investment_amount}
-   - Quantity > 0
-   - Quantity rounded to 2 decimal places
-5. Consider user's {preferences.get('additional_preferences', '')}
-6. Focus on {preferences.get('investment_style', 'balanced')} approach
-7. Target {preferences.get('investment_goals', 'growth')} objectives
-8. Maintain {preferences.get('risk_appetite', 'medium')} risk profile
-
-Return ONLY the JSON object, no other text."""
+The response must be a single, valid JSON object that can be parsed by json.loads().
+"""
 
             response = self.llm.invoke(comprehensive_prompt)
             complete_analysis = self._parse_json_response(response.content)
@@ -231,51 +435,86 @@ Return ONLY the JSON object, no other text."""
             
             # Validate recommendations
             validated_recommendations = []
-            required_fields = ["Symbol", "Company", "Action", "Quantity", "Reason", "Caution", "NewsSentiment", "Score"]
+            required_fields = {
+                "Symbol": "",
+                "Company": "Unknown Company",
+                "Action": "None",
+                "Quantity": 0,
+                "CurrentPrice": 0.0,
+                "TotalCost": 0.0,
+                "Reason": "No reason provided",
+                "Caution": "No caution provided",
+                "NewsSentiment": "Neutral",
+                "Score": 0
+            }
             
             for rec in recommendations:
-                if all(field in rec for field in required_fields):
+                try:
+                    # Create a new recommendation with all required fields
+                    validated_rec = {field: rec.get(field, default) for field, default in required_fields.items()}
+                    
+                    # Convert numeric fields to proper types
                     try:
-                        # Validate stock symbol
-                        if rec["Symbol"] not in self.ALLOWED_STOCKS:
-                            logger.error(f"Model suggested invalid stock: {rec['Symbol']}. Must be one of: {', '.join(self.ALLOWED_STOCKS)}")
-                            continue
-
-                        # Get current price and validate quantity
-                        current_price = self._get_current_price(rec["Symbol"])
-                        quantity = self._convert_to_float(rec["Quantity"])
-                        total_cost = current_price * quantity
-
-                        if current_price <= 0:
-                            logger.error(f"Invalid price for {rec['Symbol']}: {current_price}")
-                            continue
-
-                        if quantity <= 0:
-                            logger.error(f"Invalid quantity for {rec['Symbol']}: {quantity}")
-                            continue
-
-                        if total_cost > investment_amount:
-                            # Adjust quantity to fit investment amount
-                            quantity = math.floor((investment_amount / current_price) * 100) / 100  # Round to 2 decimal places
-                            logger.info(f"Adjusted quantity for {rec['Symbol']} from {rec['Quantity']} to {quantity} to fit investment amount")
-                            rec["Quantity"] = quantity
-                            total_cost = current_price * quantity
-
-                        rec["CurrentPrice"] = current_price
-                        rec["TotalCost"] = total_cost
-                        rec["Quantity"] = quantity
-
-                        if (0 <= rec["Score"] <= 100 and
-                            rec["Action"] in ["Buy", "Sell"] and
-                            rec["NewsSentiment"] in ["Positive", "Negative", "Neutral"]):
-                            validated_recommendations.append(rec)
-                        else:
-                            logger.warning(f"Skipping recommendation with invalid values: {rec}")
-                    except Exception as e:
-                        logger.error(f"Error validating recommendation: {str(e)}")
+                        validated_rec["Score"] = int(float(str(validated_rec["Score"]).replace(',', '')))
+                        validated_rec["Quantity"] = self._convert_to_float(validated_rec["Quantity"])
+                        validated_rec["CurrentPrice"] = self._convert_to_float(validated_rec["CurrentPrice"])
+                        validated_rec["TotalCost"] = self._convert_to_float(validated_rec["TotalCost"])
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"Error converting numeric fields: {str(e)}")
                         continue
-                else:
-                    logger.warning(f"Skipping invalid recommendation missing required fields: {rec}")
+                    
+                    # Validate stock symbol
+                    if validated_rec["Symbol"] not in self.ALLOWED_STOCKS:
+                        logger.error(f"Model suggested invalid stock: {validated_rec['Symbol']}. Must be one of: {', '.join(self.ALLOWED_STOCKS)}")
+                        continue
+
+                    # Get current price and validate quantity
+                    current_price = self._get_current_price(validated_rec["Symbol"])
+                    quantity = validated_rec["Quantity"]
+                    total_cost = current_price * quantity
+
+                    if current_price <= 0:
+                        logger.error(f"Invalid price for {validated_rec['Symbol']}: {current_price}")
+                        continue
+
+                    if quantity <= 0:
+                        logger.error(f"Invalid quantity for {validated_rec['Symbol']}: {quantity}")
+                        continue
+
+                    if total_cost > investment_amount:
+                        # Adjust quantity to fit investment amount
+                        quantity = math.floor((investment_amount / current_price) * 100) / 100  # Round to 2 decimal places
+                        logger.info(f"Adjusted quantity for {validated_rec['Symbol']} from {validated_rec['Quantity']} to {quantity} to fit investment amount")
+
+                    # Update the recommendation with validated values
+                    validated_rec.update({
+                        "CurrentPrice": current_price,
+                        "TotalCost": total_cost,
+                        "Quantity": quantity
+                    })
+
+                    # Validate score and other fields after type conversion
+                    score = validated_rec["Score"]
+                    if not isinstance(score, (int, float)):
+                        logger.error(f"Invalid score type: {type(score)}")
+                        continue
+                        
+                    if not (0 <= score <= 100):
+                        logger.error(f"Score out of range: {score}")
+                        continue
+                        
+                    if validated_rec["Action"] not in ["Buy", "Sell"]:
+                        logger.error(f"Invalid action: {validated_rec['Action']}")
+                        continue
+                        
+                    if validated_rec["NewsSentiment"] not in ["Positive", "Negative", "Neutral"]:
+                        logger.error(f"Invalid sentiment: {validated_rec['NewsSentiment']}")
+                        continue
+                        
+                    validated_recommendations.append(validated_rec)
+                except Exception as e:
+                    logger.error(f"Error validating recommendation: {str(e)}")
+                    continue
 
             if not validated_recommendations:
                 validated_recommendations = [{
@@ -283,6 +522,8 @@ Return ONLY the JSON object, no other text."""
                     "Company": "Error in Recommendation",
                     "Action": "None",
                     "Quantity": 0,
+                    "CurrentPrice": 0.0,
+                    "TotalCost": 0.0,
                     "Reason": "Failed to generate valid recommendation",
                     "Caution": "Please try again",
                     "NewsSentiment": "Neutral",
@@ -312,11 +553,11 @@ Return ONLY the JSON object, no other text."""
                 "✅ Validated investment amounts and share quantities",
                 "✅ Compiled final market insights and guidance"
             ])
-            return validated_recommendations, insights, reasoning_steps
+            return validated_recommendations, insights, reasoning_steps, thinking_process
 
         except Exception as e:
             logger.error(f"Reasoning analysis failed: {str(e)}")
-            return [], "Analysis failed due to technical issues.", reasoning_steps
+            return [], "Analysis failed due to technical issues.", reasoning_steps, thinking_process
 
     def validate_trade(self, recommendation: Dict, preferences: Dict) -> Tuple[bool, str, List[str]]:
         """
@@ -344,7 +585,7 @@ Return ONLY the JSON object, no other text."""
                     return False, f"Total cost (${total_cost:.2f}) exceeds investment amount (${max_investment:.2f})", reasoning_steps
 
             # Combined trade validation prompt
-            reasoning_steps.append("✅ Performing comprehensive trade validation...")
+            reasoning_steps.append("✓ Performing comprehensive trade validation...")
             validation_prompt = f"""You are an expert trading advisor performing a complete trade validation analysis.
 
 Context:
@@ -406,14 +647,14 @@ Return your complete analysis as a JSON object with these exact keys:
     "execution": Task 3 result
 }}
 
-Important considerations:
-- Verify the stock is in the allowed list
-- Account for user's additional preferences: {preferences.get('additional_preferences', '')}
-- Consider market volatility and timing
-- Evaluate against user's risk tolerance
-- Assess portfolio fit and diversification
-- Validate quantity and price levels
-- Ensure trade amount fits within investment_amount
+Important:
+1. Format all numbers with proper spacing
+2. Use clear bullet points for lists
+3. Keep all text on one line for each point
+4. Avoid special characters that might break formatting
+5. Use simple punctuation (periods, commas)
+6. Format prices as "$X.XX"
+7. Use clear line breaks between sections
 
 Return ONLY the JSON object, no other text."""
 
@@ -437,35 +678,59 @@ Return ONLY the JSON object, no other text."""
                             )
                 except Exception as e:
                     logger.error(f"Error validating trade costs: {str(e)}")
-            
+
+            def format_list(items: List[str]) -> str:
+                """Format a list of items with proper line breaks and bullets."""
+                return "\\n".join(f"• {item.strip()}" for item in items if item.strip())
+
             # Compile explanation based on the comprehensive analysis
             if is_valid:
                 execution = validation_result.get("execution", {}).get("execution_strategy", {})
-                explanation = f"""🥁Trade Validation Summary:
-• Confidence: {validation.get('confidence', 'N/A')}/100
-• Primary Reasons: {', '.join(validation.get('primary_reasons', []))}
-• Key Concerns: {', '.join(validation.get('concerns', []))}
+                explanation = f"""🎯 Trade Validation Summary:
+Confidence Score: {validation.get('confidence', 'N/A')}/100
+
+Primary Reasons:
+{format_list(validation.get('primary_reasons', []))}
+
+Key Concerns:
+{format_list(validation.get('concerns', []))}
 
 Execution Strategy:
-• Entry Points: {', '.join(execution.get('entry_points', ['Not specified']))}
+Entry Points:
+{format_list(execution.get('entry_points', []))}
+
+Risk Management:
 • Stop Loss: {execution.get('risk_management', {}).get('stop_loss', 'Not specified')}
 • Take Profit: {execution.get('risk_management', {}).get('take_profit', 'Not specified')}
-• Monitoring Points: {', '.join(execution.get('monitoring', ['None specified']))}"""
-            else:
 
-                explanation = f"""Trade Rejected:
-• Reasons: {', '.join(validation.get('primary_reasons', ['Invalid trade']))}
-• Suggested Changes:
-  - Quantity: {validation.get('modifications', {}).get('quantity', 'No suggestion')}
-  - Timing: {validation.get('modifications', {}).get('timing', 'No suggestion')}
-• Key Concerns: {', '.join(validation.get('concerns', []))}"""
+Monitoring Points:
+{format_list(execution.get('monitoring', []))}"""
+            else:
+                explanation = f"""❌ Trade Rejected:
+
+Reasons:
+{format_list(validation.get('primary_reasons', ['Invalid trade']))}
+
+Suggested Changes:
+• Quantity: {validation.get('modifications', {}).get('quantity', 'No suggestion')}
+• Timing: {validation.get('modifications', {}).get('timing', 'No suggestion')}
+
+Key Concerns:
+{format_list(validation.get('concerns', []))}"""
+
+            # Clean up the explanation text
+            explanation = (explanation
+                         .replace('\n\n\n', '\n\n')  # Remove extra line breaks
+                         .replace('•  ', '• ')       # Fix bullet point spacing
+                         .replace('\\n', '\n')       # Replace escaped newlines
+                         .strip())                   # Remove trailing whitespace
 
             # Update reasoning steps
             reasoning_steps.append(explanation)
             reasoning_steps.extend([
-                "✅     Completed comprehensive trade validation",
-                "✅ Analyzed risk and market conditions",
-                "✅ Generated execution strategy" if is_valid else "Identified validation issues"
+                "✓ Completed comprehensive trade validation",
+                "✓ Analyzed risk and market conditions",
+                "✓ Generated execution strategy" if is_valid else "✓ Identified validation issues"
             ])
 
             return is_valid, explanation, reasoning_steps
